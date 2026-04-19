@@ -1,6 +1,0 @@
-public final class com/leica/cam/test/builders/PhotonBufferBuilder {
-	public static final field INSTANCE Lcom/leica/cam/test/builders/PhotonBufferBuilder;
-	public final fun create16Bit (III)Lcom/leica/cam/hardware/contracts/photon/PhotonBuffer;
-	public static synthetic fun create16Bit$default (Lcom/leica/cam/test/builders/PhotonBufferBuilder;IIIILjava/lang/Object;)Lcom/leica/cam/hardware/contracts/photon/PhotonBuffer;
-}
-
