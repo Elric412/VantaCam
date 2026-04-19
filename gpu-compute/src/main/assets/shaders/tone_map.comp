@@ -1,0 +1,59 @@
+#version 320 es
+// tone_map.comp — Zone-aware tone mapping compute shader.
+// Sky/background: gentle roll-off. Skin: contrast-preserving S-curve.
+// Shadow lift 0.1 EV below perceptual black. Linear light I/O.
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(rgba16f, binding = 0) readonly uniform highp image2D u_input;
+layout(rgba16f, binding = 1) writeonly uniform highp image2D u_output;
+
+// Zone mask: R=sky, G=skin, B=shadow
+layout(rgba16f, binding = 2) readonly uniform highp image2D u_zoneMask;
+
+uniform float u_shadowLift;    // default 0.04
+uniform float u_shoulderStr;   // default 0.12
+
+highp vec3 toneMapZone(highp vec3 linear, highp vec3 zone) {
+    highp float lum = dot(linear, vec3(0.2126, 0.7152, 0.0722));
+
+    // Base: Naka-Rushton shoulder roll-off
+    highp float shoulder = lum / (lum + u_shoulderStr);
+
+    // Shadow lift: bring up very dark regions by u_shadowLift EV
+    highp float shadowBoost = max(0.0, u_shadowLift - lum) * u_shadowLift;
+    highp float base = max(shoulder, shadowBoost);
+
+    // Sky zone: gentle roll-off (preserve highlights)
+    highp float skyWeight = zone.r;
+    highp vec3 skyResult = linear / (linear + vec3(u_shoulderStr * 0.5));
+
+    // Skin zone: contrast-preserving S-curve
+    highp float skinWeight = zone.g;
+    highp vec3 skinResult = vec3(base) + (linear - vec3(lum)) * 0.9;
+    skinResult = clamp(skinResult, 0.0, 1.0);
+
+    // Shadow zone: extra lift
+    highp float shadowWeight = zone.b;
+    highp vec3 shadowResult = linear + vec3(shadowBoost * 0.5);
+    shadowResult = shadowResult / (shadowResult + vec3(u_shoulderStr));
+
+    // Blend zones
+    highp vec3 result = vec3(base) * (1.0 - skyWeight - skinWeight - shadowWeight)
+        + skyResult * skyWeight
+        + skinResult * skinWeight
+        + shadowResult * shadowWeight;
+
+    return clamp(result, 0.0, 1.0);
+}
+
+void main() {
+    ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = imageSize(u_input);
+    if (coord.x >= size.x || coord.y >= size.y) return;
+
+    highp vec4 pixel = imageLoad(u_input, coord);
+    highp vec4 zone = imageLoad(u_zoneMask, coord);
+    highp vec3 toned = toneMapZone(pixel.rgb, zone.rgb);
+    imageStore(u_output, coord, vec4(toned, pixel.a));
+}
