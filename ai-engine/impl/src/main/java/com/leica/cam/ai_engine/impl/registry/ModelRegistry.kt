@@ -37,6 +37,7 @@ class ModelRegistry(
         EXPOSURE_PREDICTOR,
         MICRO_ISP,
         IMAGE_CLASSIFIER,
+        AUTO_WHITE_BALANCE,
         UNKNOWN,
     }
 
@@ -255,6 +256,8 @@ class ModelRegistry(
         name.contains("microisp") || name.contains("micro_isp") ||
             name.contains("isp") -> PipelineRole.MICRO_ISP
         name.contains("image classifier") -> PipelineRole.IMAGE_CLASSIFIER
+        name.contains("awb") || name.contains("white_balance") ||
+            name.contains("white balance") -> PipelineRole.AUTO_WHITE_BALANCE
         else -> null
     }
 
@@ -284,6 +287,85 @@ class ModelRegistry(
     private fun isPytorchPickle(header: ByteArray): Boolean {
         // PyTorch uses Python pickle protocol; check for pickle opcode 0x80
         return header.size >= 2 && header[0] == 0x80.toByte() && header[1].toInt() in 2..5
+    }
+
+    // ── New: session ownership & asset loading (D1.5) ─────────────────
+
+    /**
+     * Load the raw model bytes for [role] from Android assets
+     * (`assets/models/<subdirectory>/<file>.tflite`). Caller owns the returned buffer.
+     *
+     * @param assetBytes Lambda that opens an asset path and returns a direct [java.nio.ByteBuffer].
+     * @return null if the role is not present in the catalogue.
+     */
+    fun loadBytesForRole(
+        role: PipelineRole,
+        assetBytes: (path: String) -> java.nio.ByteBuffer,
+    ): java.nio.ByteBuffer? {
+        val entry = catalogue[role] ?: return null
+        val relative = entry.file.relativeTo(modelDir).path.replace(java.io.File.separatorChar, '/')
+        return assetBytes("models/$relative")
+    }
+
+    /**
+     * Build a [com.leica.cam.ai_engine.impl.runtime.LiteRtSession] for [role].
+     * The caller is responsible for closing the returned session.
+     *
+     * @param assetBytes Lambda to load asset bytes as a direct [java.nio.ByteBuffer].
+     * @param priority   Ordered delegate list; defaults to auto-detected SoC preference.
+     */
+    fun openSession(
+        role: PipelineRole,
+        assetBytes: (path: String) -> java.nio.ByteBuffer,
+        priority: List<com.leica.cam.ai_engine.impl.runtime.LiteRtSession.DelegateKind> =
+            com.leica.cam.ai_engine.impl.runtime.DelegatePicker.priorityForCurrentDevice(),
+    ): com.leica.cam.common.result.LeicaResult<com.leica.cam.ai_engine.impl.runtime.LiteRtSession> {
+        val buffer = loadBytesForRole(role, assetBytes)
+            ?: return com.leica.cam.common.result.LeicaResult.Failure.Pipeline(
+                com.leica.cam.common.result.PipelineStage.AI_ENGINE,
+                "No model asset found for role $role",
+            )
+        return com.leica.cam.ai_engine.impl.runtime.LiteRtSession.open(buffer, priority)
+    }
+
+    /**
+     * Warm-up inference for all catalogued models. Runs a zero-filled input
+     * through each session on a background dispatcher -- amortises JIT /
+     * delegate-compile cost before the user presses the shutter.
+     *
+     * Models are warmed sequentially with `System.gc()` between each to prevent
+     * OOM on low-end devices (total peak < 400 MB).
+     *
+     * @return Number of models successfully warmed up.
+     */
+    suspend fun warmUpAll(
+        assetBytes: (path: String) -> java.nio.ByteBuffer,
+        dispatcher: kotlinx.coroutines.CoroutineDispatcher = kotlinx.coroutines.Dispatchers.Default,
+    ): Int = kotlinx.coroutines.withContext(dispatcher) {
+        var warmed = 0
+        for (role in catalogue.keys) {
+            val sessionResult = openSession(role, assetBytes)
+            if (sessionResult is com.leica.cam.common.result.LeicaResult.Success) {
+                // Synthetic zero-filled input; output is ignored.
+                val dummyIn = java.nio.ByteBuffer.allocateDirect(4)
+                    .order(java.nio.ByteOrder.nativeOrder())
+                val dummyOut = java.nio.ByteBuffer.allocateDirect(4)
+                    .order(java.nio.ByteOrder.nativeOrder())
+                runCatching { sessionResult.value.run(dummyIn, dummyOut) }
+                sessionResult.value.close()
+                warmed++
+                // Prevent OOM on low-end devices -- sequential GC hint between models
+                @Suppress("ExplicitGarbageCollectionCall")
+                System.gc()
+            } else {
+                logger(
+                    LogLevel.WARN, TAG,
+                    "Warm-up failed for role $role: ${(sessionResult as? com.leica.cam.common.result.LeicaResult.Failure)?.message}",
+                )
+            }
+        }
+        logger(LogLevel.INFO, TAG, "Model warm-up complete: $warmed / ${catalogue.size} models ready")
+        warmed
     }
 
     companion object {

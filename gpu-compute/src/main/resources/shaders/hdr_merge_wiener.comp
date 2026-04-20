@@ -1,0 +1,75 @@
+#version 450
+// ─────────────────────────────────────────────────────────────────────────────
+// Per-channel Wiener HDR merge — Vulkan Compute Shader
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// D2.5: Per-CFA-channel Wiener-weighted merge with ghost-aware motion penalty.
+// Fixes the old luminance-only sigma^2 bug.
+//
+// Inputs:
+//   inFrames     — N aligned frames stored as image2DArray [N][H][W] in rgba16f.
+//   noiseBuf     — Per-channel shot/read noise coefficients from SENSOR_NOISE_PROFILE.
+//   pc           — Push constants: frame count, motion sigma.
+//
+// Output:
+//   outMerged    — Single merged frame in rgba16f.
+//
+// Invocation: one thread per pixel. Workgroup: 16x16.
+// ─────────────────────────────────────────────────────────────────────────────
+
+layout(local_size_x = 16, local_size_y = 16) in;
+
+layout(binding = 0, rgba16f) uniform readonly image2DArray inFrames;
+layout(binding = 1, rgba16f) uniform writeonly image2D outMerged;
+
+layout(std430, binding = 2) readonly buffer NoiseBuf {
+    float shotR; float shotG; float shotB;
+    float readR; float readG; float readB;
+} noise;
+
+layout(push_constant) uniform PC {
+    int frameCount;
+    float motionSigma;
+} pc;
+
+void main() {
+    ivec2 xy = ivec2(gl_GlobalInvocationID.xy);
+
+    // Bounds check
+    ivec2 dims = imageSize(outMerged);
+    if (xy.x >= dims.x || xy.y >= dims.y) return;
+
+    // First pass: compute mean luminance across burst for motion penalty
+    float meanLuma = 0.0;
+    for (int f = 0; f < pc.frameCount; ++f) {
+        vec3 px = imageLoad(inFrames, ivec3(xy, f)).rgb;
+        meanLuma += 0.2126 * px.r + 0.7152 * px.g + 0.0722 * px.b;
+    }
+    meanLuma /= float(pc.frameCount);
+
+    // Second pass: per-channel Wiener-weighted accumulation
+    vec3 sumWeighted = vec3(0.0);
+    vec3 sumWeights = vec3(0.0);
+
+    for (int f = 0; f < pc.frameCount; ++f) {
+        vec3 px = imageLoad(inFrames, ivec3(xy, f)).rgb;
+        float luma = 0.2126 * px.r + 0.7152 * px.g + 0.0722 * px.b;
+
+        // Gaussian motion penalty: exponential decay for frames deviating from mean
+        float motionPenalty = exp(-pow((luma - meanLuma) / max(pc.motionSigma, 1e-6), 2.0));
+
+        // Per-channel inverse-variance Wiener weight (D2.5 fix)
+        vec3 variance = vec3(
+            noise.shotR * max(px.r, 0.0) + noise.readR,
+            noise.shotG * max(px.g, 0.0) + noise.readG,
+            noise.shotB * max(px.b, 0.0) + noise.readB
+        );
+        vec3 w = vec3(motionPenalty) / max(variance, vec3(1e-8));
+
+        sumWeighted += px * w;
+        sumWeights += w;
+    }
+
+    vec3 merged = sumWeighted / max(sumWeights, vec3(1e-8));
+    imageStore(outMerged, xy, vec4(merged, 1.0));
+}

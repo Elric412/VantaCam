@@ -31,5 +31,6 @@ enum class PipelineStage {
     MODEL_REGISTRY,
     SENSOR_DETECTION,
     SOC_DETECTION,
+    AI_ENGINE,
 }
 

@@ -84,6 +84,23 @@ android {
     }
 }
 
+// ── Model asset pipeline ─────────────────────────────────────────────────
+// Copies /Model/<Role>/*.tflite and *.task into assets/models/ at build time.
+// ONNX files are intentionally skipped — we ship TFLite only on device.
+tasks.register<Copy>("copyOnDeviceModels") {
+    from(rootProject.file("Model")) {
+        include("**/*.tflite")
+        include("**/*.task")
+        exclude("**/Temp/**")
+    }
+    into(layout.projectDirectory.dir("src/main/assets/models"))
+    duplicatesStrategy = DuplicatesStrategy.INCLUDE
+}
+
+tasks.named("preBuild").configure {
+    dependsOn("copyOnDeviceModels")
+}
+
 dependencies {
     implementation(project(":feature:camera"))
     implementation(project(":feature:gallery"))
