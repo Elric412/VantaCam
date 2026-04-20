@@ -5,6 +5,7 @@ coreKtx = "1.13.1"
 appcompat = "1.7.0"
 material = "1.12.0"
 composeBom = "2024.06.00"
+composeCompiler = "1.5.14"
 activityCompose = "1.9.0"
 lifecycleRuntimeKtx = "2.8.2"
 hilt = "2.51.1"
@@ -20,8 +21,16 @@ binaryCompatibilityValidator = "0.14.0"
 litert = "1.0.1"
 litertGpu = "1.0.1"
 mediapipeTasks = "0.10.14"
+javaxInject = "1"
 
 [libraries]
+android-gradle-plugin = { group = "com.android.tools.build", name = "gradle", version.ref = "agp" }
+kotlin-gradle-plugin = { group = "org.jetbrains.kotlin", name = "kotlin-gradle-plugin", version.ref = "kotlin" }
+hilt-gradle-plugin = { group = "com.google.dagger", name = "hilt-android-gradle-plugin", version.ref = "hilt" }
+detekt-gradle-plugin = { group = "io.gitlab.arturbosch.detekt", name = "detekt-gradle-plugin", version.ref = "detekt" }
+ktlint-gradle-plugin = { group = "org.jlleitschuh.gradle", name = "ktlint-gradle", version.ref = "ktlint" }
+binary-compatibility-validator-gradle-plugin = { group = "org.jetbrains.kotlinx", name = "binary-compatibility-validator", version.ref = "binaryCompatibilityValidator" }
+javax-inject = { group = "javax.inject", name = "javax.inject", version.ref = "javaxInject" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
 google-material = { group = "com.google.android.material", name = "material", version.ref = "material" }
