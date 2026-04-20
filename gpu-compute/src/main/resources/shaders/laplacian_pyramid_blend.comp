@@ -1,0 +1,49 @@
+#version 450
+// ─────────────────────────────────────────────────────────────────────────────
+// Laplacian Pyramid Blend — Vulkan Compute Shader
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// D2.2: Blends Laplacian levels weighted by a Gaussian-pyramid weight image.
+// Used in Mertens exposure fusion for seamless multi-exposure blending
+// without halos (Burt & Adelson, 1983).
+//
+// Each invocation processes one pixel at one pyramid level.
+// The host dispatches once per level, binding the correct level's buffers.
+//
+// Inputs:
+//   inLaplacianFrames  — N source Laplacian levels [N][H_lvl][W_lvl] in r16f.
+//   inGaussianWeights  — N Gaussian weight levels [N][H_lvl][W_lvl] in r16f.
+//
+// Output:
+//   outBlendedLevel    — Single blended Laplacian level in r16f.
+//
+// Push constants: frameCount, level dimensions.
+// ─────────────────────────────────────────────────────────────────────────────
+
+layout(local_size_x = 16, local_size_y = 16) in;
+
+layout(binding = 0, r16f) uniform readonly image2DArray inLaplacianFrames;
+layout(binding = 1, r16f) uniform readonly image2DArray inGaussianWeights;
+layout(binding = 2, r16f) uniform writeonly image2D outBlendedLevel;
+
+layout(push_constant) uniform PC {
+    int frameCount;
+    int levelWidth;
+    int levelHeight;
+} pc;
+
+void main() {
+    ivec2 xy = ivec2(gl_GlobalInvocationID.xy);
+
+    if (xy.x >= pc.levelWidth || xy.y >= pc.levelHeight) return;
+
+    float blended = 0.0;
+
+    for (int f = 0; f < pc.frameCount; ++f) {
+        float laplacianVal = imageLoad(inLaplacianFrames, ivec3(xy, f)).r;
+        float gaussWeight = imageLoad(inGaussianWeights, ivec3(xy, f)).r;
+        blended += laplacianVal * gaussWeight;
+    }
+
+    imageStore(outBlendedLevel, xy, vec4(blended, 0.0, 0.0, 1.0));
+}

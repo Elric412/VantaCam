@@ -54,6 +54,7 @@ class HyperToneWB2Engine {
         sensorToXyz3x3: FloatArray,
         sceneContext: SceneContext? = null,
         skinMask: BooleanArray? = null,
+        neuralCctPrior: com.leica.cam.ai_engine.impl.models.AwbPrediction? = null,
     ): LeicaResult<RgbFrame> {
         require(sensorToXyz3x3.size == 9) {
             "sensorToXyz3x3 must be a 3×3 row-major matrix (9 elements)"
@@ -63,8 +64,22 @@ class HyperToneWB2Engine {
         // Skin anchor CCT is the reference around which all zone gains are clamped.
         val skinAnchorCct = computeSkinAnchorCct(frame, skinMask, sensorToXyz3x3)
 
-        // ── Step 2: Multi-modal CCT estimation ────────────────────────────
-        val rawEstimate = estimateCctMultiModal(frame, sensorToXyz3x3, sceneContext)
+        // ── Step 2: Multi-modal CCT estimation (D1.7: neural AWB prior) ──
+        val rawEstimate = if (neuralCctPrior != null) {
+            // Blend neural model CCT with Robertson histogram estimator.
+            // Neural model provides a learned prior; histogram is the physics ground truth.
+            val histogramCct = estimateCctMultiModal(frame, sensorToXyz3x3, sceneContext)
+            val blendWeight = neuralCctPrior.confidence.coerceIn(0f, 1f)
+            RobertsonCctEstimator.CctEstimate(
+                cctKelvin = (blendWeight * neuralCctPrior.cctKelvin +
+                    (1f - blendWeight) * histogramCct.cctKelvin).coerceIn(1667f, 25000f),
+                duv = (blendWeight * neuralCctPrior.tintDuv +
+                    (1f - blendWeight) * histogramCct.duv),
+                confidence = kotlin.math.max(neuralCctPrior.confidence, histogramCct.confidence),
+            )
+        } else {
+            estimateCctMultiModal(frame, sensorToXyz3x3, sceneContext)
+        }
 
         // ── Step 3: Temporal smoothing for flicker-free preview ───────────
         // α = 0.15 per LUMO spec (low-pass filter on CCT changes)
