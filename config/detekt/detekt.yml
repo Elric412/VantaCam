@@ -1,0 +1,31 @@
+build:
+  maxIssues: 1000
+
+complexity:
+  CyclomaticComplexMethod:
+    active: true
+    threshold: 30
+  LongMethod:
+    active: false
+  LongParameterList:
+    active: false
+
+naming:
+  PackageNaming:
+    active: false
+  FunctionNaming:
+    active: false
+  MatchingDeclarationName:
+    active: false
+
+style:
+  MaxLineLength:
+    active: false
+  MagicNumber:
+    active: false
+  WildcardImport:
+    active: false
+  ReturnCount:
+    active: false
+  FunctionOnlyReturningConstant:
+    active: false

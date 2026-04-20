@@ -1,0 +1,89 @@
+public final class com/leica/cam/hardware/contracts/GpuCapabilities {
+	public fun <init> (Ljava/lang/String;IZ)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()I
+	public final fun component3 ()Z
+	public final fun copy (Ljava/lang/String;IZ)Lcom/leica/cam/hardware/contracts/GpuCapabilities;
+	public static synthetic fun copy$default (Lcom/leica/cam/hardware/contracts/GpuCapabilities;Ljava/lang/String;IZILjava/lang/Object;)Lcom/leica/cam/hardware/contracts/GpuCapabilities;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getBackend ()Ljava/lang/String;
+	public final fun getMaxTextureSize ()I
+	public final fun getSupportsFp16 ()Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/leica/cam/hardware/contracts/LensSpec {
+	public fun <init> (FFF)V
+	public final fun component1 ()F
+	public final fun component2 ()F
+	public final fun component3 ()F
+	public final fun copy (FFF)Lcom/leica/cam/hardware/contracts/LensSpec;
+	public static synthetic fun copy$default (Lcom/leica/cam/hardware/contracts/LensSpec;FFFILjava/lang/Object;)Lcom/leica/cam/hardware/contracts/LensSpec;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getAperture ()F
+	public final fun getFocalLengthMm ()F
+	public final fun getMinimumFocusDistanceM ()F
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/leica/cam/hardware/contracts/NpuCapabilities {
+	public fun <init> (ZFZ)V
+	public final fun component1 ()Z
+	public final fun component2 ()F
+	public final fun component3 ()Z
+	public final fun copy (ZFZ)Lcom/leica/cam/hardware/contracts/NpuCapabilities;
+	public static synthetic fun copy$default (Lcom/leica/cam/hardware/contracts/NpuCapabilities;ZFZILjava/lang/Object;)Lcom/leica/cam/hardware/contracts/NpuCapabilities;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getPeakTops ()F
+	public final fun getPresent ()Z
+	public final fun getSupportsInt8 ()Z
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public final class com/leica/cam/hardware/contracts/SensorSpec {
+	public fun <init> (Ljava/lang/String;III)V
+	public final fun component1 ()Ljava/lang/String;
+	public final fun component2 ()I
+	public final fun component3 ()I
+	public final fun component4 ()I
+	public final fun copy (Ljava/lang/String;III)Lcom/leica/cam/hardware/contracts/SensorSpec;
+	public static synthetic fun copy$default (Lcom/leica/cam/hardware/contracts/SensorSpec;Ljava/lang/String;IIIILjava/lang/Object;)Lcom/leica/cam/hardware/contracts/SensorSpec;
+	public fun equals (Ljava/lang/Object;)Z
+	public final fun getBitDepth ()I
+	public final fun getHeightPx ()I
+	public final fun getId ()Ljava/lang/String;
+	public final fun getWidthPx ()I
+	public fun hashCode ()I
+	public fun toString ()Ljava/lang/String;
+}
+
+public abstract class com/leica/cam/hardware/contracts/photon/PhotonBuffer {
+	public static final field Companion Lcom/leica/cam/hardware/contracts/photon/PhotonBuffer$Companion;
+	public synthetic fun <init> (IILcom/leica/cam/hardware/contracts/photon/PhotonBuffer$BitDepth;Ljava/util/List;Lkotlin/jvm/internal/DefaultConstructorMarker;)V
+	public final fun getBitDepth ()Lcom/leica/cam/hardware/contracts/photon/PhotonBuffer$BitDepth;
+	public final fun getHeight ()I
+	protected final fun getPlanes ()Ljava/util/List;
+	public final fun getWidth ()I
+	public final fun planeCount ()I
+	public final fun planeView (I)Ljava/nio/ShortBuffer;
+}
+
+public final class com/leica/cam/hardware/contracts/photon/PhotonBuffer$BitDepth : java/lang/Enum {
+	public static final field BITS_10 Lcom/leica/cam/hardware/contracts/photon/PhotonBuffer$BitDepth;
+	public static final field BITS_12 Lcom/leica/cam/hardware/contracts/photon/PhotonBuffer$BitDepth;
+	public static final field BITS_16 Lcom/leica/cam/hardware/contracts/photon/PhotonBuffer$BitDepth;
+	public static fun getEntries ()Lkotlin/enums/EnumEntries;
+	public static fun valueOf (Ljava/lang/String;)Lcom/leica/cam/hardware/contracts/photon/PhotonBuffer$BitDepth;
+	public static fun values ()[Lcom/leica/cam/hardware/contracts/photon/PhotonBuffer$BitDepth;
+}
+
+public final class com/leica/cam/hardware/contracts/photon/PhotonBuffer$Companion {
+	public final fun create16Bit (IILjava/util/List;)Lcom/leica/cam/hardware/contracts/photon/PhotonBuffer;
+}
+
+public final class com/leica/cam/hardware/contracts/photon/PhotonBuffer$Immutable : com/leica/cam/hardware/contracts/photon/PhotonBuffer {
+}
+

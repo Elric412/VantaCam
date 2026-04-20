@@ -1,0 +1,75 @@
+{
+  "version": 1,
+  "skills": {
+    "analyzing-projects": {
+      "source": "CloudAI-X/claude-workflow-v2",
+      "sourceType": "github",
+      "computedHash": "fd8dc49913e1895ad1814a76264e1ad5801c8b292814d1e801a855ae114c98e1"
+    },
+    "convex-backend": {
+      "source": "CloudAI-X/claude-workflow-v2",
+      "sourceType": "github",
+      "computedHash": "688ab6a5b713e70b65df3c1a78d8ac40a13d0a6e1c4c36c03eb13cb54a636c59"
+    },
+    "database-design": {
+      "source": "CloudAI-X/claude-workflow-v2",
+      "sourceType": "github",
+      "computedHash": "b0684b9dfd4f9d7069d16342c6bcef22a527bf24964c21d182fc48bc65992ec0"
+    },
+    "designing-apis": {
+      "source": "CloudAI-X/claude-workflow-v2",
+      "sourceType": "github",
+      "computedHash": "6debb6909e5a8cb2de16b31785d9c7791a3052e58aa7ae8381bcee3d1d44dbb4"
+    },
+    "designing-architecture": {
+      "source": "CloudAI-X/claude-workflow-v2",
+      "sourceType": "github",
+      "computedHash": "f8705ab50369bcd902ab0f9f81367d872229572ec912bd843f5b66c8a9490832"
+    },
+    "designing-tests": {
+      "source": "CloudAI-X/claude-workflow-v2",
+      "sourceType": "github",
+      "computedHash": "77d550a8871ecc48a105fbe87ab3bc6943c3a96ea7517036eb7f329ed5070d16"
+    },
+    "devops-infrastructure": {
+      "source": "CloudAI-X/claude-workflow-v2",
+      "sourceType": "github",
+      "computedHash": "432d36e41fc4972d39bb57cf5d9ab30ae490da2faca261c3fd76f5dbe4c7dd5d"
+    },
+    "error-handling": {
+      "source": "CloudAI-X/claude-workflow-v2",
+      "sourceType": "github",
+      "computedHash": "ad649079305d7b39424118a9757c5bb4e429a70b47ecada9c19aca73cf4cfe43"
+    },
+    "managing-git": {
+      "source": "CloudAI-X/claude-workflow-v2",
+      "sourceType": "github",
+      "computedHash": "9334f722a3e89a98ca3d679dad9748affe5145c1b6221c94808513c4064a2be2"
+    },
+    "optimizing-performance": {
+      "source": "CloudAI-X/claude-workflow-v2",
+      "sourceType": "github",
+      "computedHash": "42697ab744a81c85ec6f9dc5527c5867078dbf9e372d9b3209dc8cae58b60c70"
+    },
+    "parallel-execution": {
+      "source": "CloudAI-X/claude-workflow-v2",
+      "sourceType": "github",
+      "computedHash": "b9ca8884aab1e792b47749b25c6dc4d0055f9217255d4fe2cdd6eb1f6da682ca"
+    },
+    "security-patterns": {
+      "source": "CloudAI-X/claude-workflow-v2",
+      "sourceType": "github",
+      "computedHash": "16ea269c4b2e2613e250fbe32eaacba12933c2f62e3ede884b5f4bc43dd2db5d"
+    },
+    "vercel-react-best-practices": {
+      "source": "CloudAI-X/claude-workflow-v2",
+      "sourceType": "github",
+      "computedHash": "8e2a55bce5fe51b4a6361ec4b0c89d2f4047f7b309156c038391b4d71a81ea18"
+    },
+    "web-design-guidelines": {
+      "source": "CloudAI-X/claude-workflow-v2",
+      "sourceType": "github",
+      "computedHash": "5984aede252ec448f4f265b89e776ccea00ba49a551a9751d6f45a02635a3fdf"
+    }
+  }
+}
