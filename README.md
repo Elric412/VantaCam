@@ -262,6 +262,13 @@ The active upgrade plan is [`Plan.md`](./Plan.md). It describes four sequential 
 
 Each dimension is a **separate PR with its own verification gate**. Do not merge them as one.
 
+A new user-preferences layer now sits above the capture UI. `CameraPreferencesRepository`
+in `:feature:settings` persists grid composition aids, user HDR mode
+(`OFF` / `ON` / `SMART` / `PRO_XDR`), and user AWB mode
+(`NORMAL` / `ADVANCE`) through `SharedPreferences`, exposes them as a singleton
+`StateFlow`, and lets both the settings surface and the live viewfinder react to
+changes immediately.
+
 ---
 
 ## Contributing

@@ -3,11 +3,34 @@ package com.leica.cam.hypertone_wb.pipeline
 import com.leica.cam.hypertone_wb.api.FusedIlluminantMap
 import com.leica.cam.hypertone_wb.api.IlluminantMap
 import com.leica.cam.hypertone_wb.api.TileCTEstimate
+import com.leica.cam.hypertone_wb.api.UserAwbMode
 import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
 class MultiModalIlluminantFusion @Inject constructor() {
+    /**
+     * User-mode-aware entry point for illuminant fusion.
+     *
+     * [UserAwbMode.NORMAL] keeps the AI dominant illuminant constant across all
+     * tiles, while [UserAwbMode.ADVANCE] preserves the existing hardware fusion.
+     */
+    fun fuseForMode(
+        userMode: UserAwbMode,
+        hwEstimates: List<TileCTEstimate>,
+        illuminantMap: IlluminantMap,
+    ): FusedIlluminantMap = when (userMode) {
+        UserAwbMode.ADVANCE -> fuseWithHardware(hwEstimates, illuminantMap)
+        UserAwbMode.NORMAL -> FusedIlluminantMap(
+            tiles = hwEstimates.map { estimate ->
+                estimate.copy(
+                    kelvin = illuminantMap.dominantKelvin,
+                    confidence = 1f,
+                )
+            },
+        )
+    }
+
     fun fuseWithHardware(
         hwEstimates: List<TileCTEstimate>,
         illuminantMap: IlluminantMap,
@@ -23,7 +46,7 @@ class MultiModalIlluminantFusion @Inject constructor() {
                 else -> 0.3f to 0.7f
             }
 
-            val fusedKelvin = (hw.kelvin * hwWeight + aiKelvin * aiWeight)
+            val fusedKelvin = hw.kelvin * hwWeight + aiKelvin * aiWeight
             hw.copy(
                 kelvin = fusedKelvin,
                 confidence = (hw.confidence * hwWeight + 0.7f * aiWeight).coerceIn(0f, 1f),

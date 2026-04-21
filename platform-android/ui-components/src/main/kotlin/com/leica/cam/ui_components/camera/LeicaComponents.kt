@@ -111,18 +111,11 @@ fun ViewfinderOverlay(
     modifier: Modifier = Modifier
 ) {
     Box(modifier = modifier.fillMaxSize()) {
-        // Horizon Level
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val center = Offset(size.width / 2, size.height / 2)
-            val length = 100.dp.toPx()
-
-            drawLine(
-                color = if (state.horizonLevelLocked) Color.Green else Color.White,
-                start = Offset(center.x - length, center.y),
-                end = Offset(center.x + length, center.y),
-                strokeWidth = 2.dp.toPx()
-            )
-        }
+        GridOverlay(
+            composition = state.composition,
+            horizonTiltDegrees = state.horizonTiltDegrees,
+            horizonLevelLocked = state.horizonLevelLocked,
+        )
 
         // AF Bracket
         Box(

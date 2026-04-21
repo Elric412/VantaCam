@@ -21,7 +21,10 @@ android {
 }
 
 dependencies {
+    implementation(project(":common"))
     implementation(project(":camera-core:api"))
+    implementation(project(":imaging-pipeline:api"))
+    implementation(project(":hypertone-wb:api"))
     implementation(project(":ui-components"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.kotlinx.coroutines.core)
@@ -32,6 +35,7 @@ dependencies {
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
+    implementation(libs.androidx.hilt.navigation.compose)
 
     testImplementation(libs.junit)
 }

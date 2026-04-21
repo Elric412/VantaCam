@@ -30,6 +30,7 @@ import com.leica.cam.feature.camera.ui.CameraScreen
 import com.leica.cam.feature.camera.ui.CameraUiOrchestrator
 import com.leica.cam.feature.gallery.ui.GalleryMetadataEngine
 import com.leica.cam.feature.gallery.ui.GalleryScreen
+import com.leica.cam.feature.settings.preferences.CameraPreferencesRepository
 import com.leica.cam.feature.settings.ui.SettingsScreen
 import com.leica.cam.ui_components.camera.Phase9UiStateCalculator
 import com.leica.cam.ui_components.theme.LeicaBlack
@@ -51,6 +52,9 @@ class MainActivity : ComponentActivity() {
 
     @Inject
     lateinit var galleryEngine: GalleryMetadataEngine
+
+    @Inject
+    lateinit var preferencesRepository: CameraPreferencesRepository
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -147,7 +151,7 @@ class MainActivity : ComponentActivity() {
             modifier = modifier,
         ) {
             composable("camera") {
-                CameraScreen(orchestrator, uiStateCalculator, modeSwitcher)
+                CameraScreen(orchestrator, uiStateCalculator, modeSwitcher, preferencesRepository)
             }
             composable("gallery") {
                 GalleryScreen(galleryEngine)

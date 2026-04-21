@@ -1,62 +1,45 @@
 package com.leica.cam.feature.settings.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.*
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.leica.cam.ui_components.theme.LeicaBlack
 import com.leica.cam.ui_components.theme.LeicaWhite
 
 @Composable
-fun SettingsScreen() {
-    val settings = listOf(
-        "Capture Format" to "RAW + JPEG",
-        "Storage Location" to "SD Card",
-        "Grid Lines" to "3x3",
-        "Leveling Guide" to "Enabled",
-        "Face Detection" to "Auto",
-        "Scene Detection" to "Enabled",
-        "Shutter Sound" to "Leica M Type 240",
-        "Firmware Version" to "1.2.0"
-    )
+fun SettingsScreen(
+    viewModel: SettingsViewModel = hiltViewModel(),
+) {
+    val sections by viewModel.sections.collectAsState()
 
-    Box(modifier = Modifier.fillMaxSize().background(LeicaBlack)) {
-        Column {
-            Text(
-                text = "SETTINGS",
-                style = MaterialTheme.typography.displayLarge,
-                color = LeicaWhite,
-                modifier = Modifier.padding(16.dp)
-            )
-
-            LazyColumn(modifier = Modifier.fillMaxSize()) {
-                items(settings) { (label, value) ->
-                    SettingsItem(label, value)
-                    HorizontalDivider(color = Color.DarkGray, thickness = 0.5.dp, modifier = Modifier.padding(horizontal = 16.dp))
-                }
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(LeicaBlack),
+    ) {
+        LazyColumn(modifier = Modifier.fillMaxSize()) {
+            item {
+                Text(
+                    text = "SETTINGS",
+                    style = MaterialTheme.typography.displayLarge,
+                    color = LeicaWhite,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 20.dp),
+                )
+            }
+            items(sections, key = { section -> section.id }) { section ->
+                SettingsSectionView(section = section)
             }
         }
-    }
-}
-
-@Composable
-fun SettingsItem(label: String, value: String) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { /* Action */ }
-            .padding(16.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(label, style = MaterialTheme.typography.bodyLarge, color = LeicaWhite)
-        Text(value.uppercase(), style = MaterialTheme.typography.labelMedium, color = Color.Gray)
     }
 }

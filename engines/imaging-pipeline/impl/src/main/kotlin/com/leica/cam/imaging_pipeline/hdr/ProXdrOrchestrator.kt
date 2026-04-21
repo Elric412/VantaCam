@@ -2,11 +2,14 @@ package com.leica.cam.imaging_pipeline.hdr
 
 import com.leica.cam.common.result.LeicaResult
 import com.leica.cam.common.result.PipelineStage
+import com.leica.cam.imaging_pipeline.api.UserHdrMode
 import com.leica.cam.imaging_pipeline.pipeline.HdrMergeMode
 import com.leica.cam.imaging_pipeline.pipeline.HdrMergeResult
 import com.leica.cam.imaging_pipeline.pipeline.NoiseModel
 import com.leica.cam.imaging_pipeline.pipeline.PipelineFrame
 import kotlin.math.abs
+
+private const val THERMAL_SEVERE_ORDINAL = 4
 
 /**
  * ProXDR -- the rebuilt HDR capture and processing orchestrator.
@@ -39,8 +42,8 @@ class ProXdrOrchestrator(
     /**
      * Full HDR processing entry point.
      *
-     * @param frames     All captured frames (base + EV brackets), linear RAW domain.
-     * @param scene      Scene descriptor for mode selection.
+     * @param frames All captured frames (base + EV brackets), linear RAW domain.
+     * @param scene Scene descriptor for mode selection.
      * @param noiseModel Physics-grounded noise model from sensor metadata.
      * @param perChannelNoise Per-CFA-channel noise for Wiener weights.
      */
@@ -49,31 +52,55 @@ class ProXdrOrchestrator(
         scene: SceneDescriptor? = null,
         noiseModel: NoiseModel? = null,
         perChannelNoise: PerChannelNoise? = null,
+        userHdrMode: UserHdrMode = UserHdrMode.SMART,
     ): LeicaResult<HdrMergeResult> {
         if (frames.isEmpty()) {
             return LeicaResult.Failure.Pipeline(PipelineStage.IMAGING_PIPELINE, "No frames for HDR")
         }
-
-        // Single frame: return immediately
-        if (frames.size == 1 || (scene?.thermalLevel ?: 0) >= 6) {
-            return LeicaResult.Success(
-                HdrMergeResult(
-                    mergedFrame = frames[0],
-                    ghostMask = FloatArray(frames[0].width * frames[0].height),
-                    hdrMode = HdrMergeMode.SINGLE_FRAME,
-                ),
-            )
+        if (frames.size == 1) return singleFrameResult(frames.first())
+        if (userHdrMode == UserHdrMode.OFF || isThermalSevere(scene)) {
+            return singleFrameResult(frames.first())
         }
+        val noise = perChannelNoise ?: PerChannelNoise.fromIsoEstimate(frames.minOf { it.isoEquivalent })
+        return when (HdrModePicker.pickWithUserOverride(buildMetadata(frames, scene), userHdrMode)) {
+            HdrMergeMode.SINGLE_FRAME -> singleFrameResult(frames.first())
+            HdrMergeMode.WIENER_BURST -> processWienerBurst(frames, noise)
+            HdrMergeMode.DEBEVEC_LINEAR -> processEvBracket(frames, noise)
+            HdrMergeMode.MERTENS_FUSION -> processMertensFusion(frames)
+        }
+    }
 
-        val evSpread = frames.maxOf { it.evOffset } - frames.minOf { it.evOffset }
-        val noise = perChannelNoise ?: PerChannelNoise.fromIsoEstimate(
-            frames.minOf { it.isoEquivalent },
+    private fun buildMetadata(
+        frames: List<PipelineFrame>,
+        scene: SceneDescriptor?,
+    ): HdrFrameSetMetadata = HdrFrameSetMetadata(
+        evSpread = frames.evSpread(),
+        // The current simplified PipelineFrame model does not expose clip or RAW-path metadata.
+        // Preserve legacy behaviour by keeping those signals neutral here.
+        allFramesClipped = false,
+        rawPathUnavailable = false,
+        thermalSevere = isThermalSevere(scene),
+    )
+
+    private fun isThermalSevere(scene: SceneDescriptor?): Boolean =
+        (scene?.thermalLevel ?: 0) >= THERMAL_SEVERE_ORDINAL
+
+    private fun singleFrameResult(frame: PipelineFrame): LeicaResult<HdrMergeResult> =
+        LeicaResult.Success(
+            HdrMergeResult(
+                mergedFrame = frame,
+                ghostMask = FloatArray(frame.width * frame.height),
+                hdrMode = HdrMergeMode.SINGLE_FRAME,
+            ),
         )
 
-        return if (evSpread < 0.5f) {
-            processWienerBurst(frames, noise)
-        } else {
-            processEvBracket(frames, noise)
+    private fun processMertensFusion(frames: List<PipelineFrame>): LeicaResult<HdrMergeResult> {
+        return mertensFallback.fuse(frames).map { mergedFrame ->
+            HdrMergeResult(
+                mergedFrame = mergedFrame,
+                ghostMask = FloatArray(frames.first().width * frames.first().height),
+                hdrMode = HdrMergeMode.MERTENS_FUSION,
+            )
         }
     }
 
@@ -119,7 +146,8 @@ class ProXdrOrchestrator(
         val alignedAll = when (alignResult) {
             is LeicaResult.Success -> alignResult.value.alignedFrames
             is LeicaResult.Failure -> return LeicaResult.Failure.Pipeline(
-                PipelineStage.IMAGING_PIPELINE, "Alignment failed",
+                PipelineStage.IMAGING_PIPELINE,
+                "Alignment failed",
             )
         }
 
@@ -159,3 +187,6 @@ class ProXdrOrchestrator(
         )
     }
 }
+
+private fun List<PipelineFrame>.evSpread(): Float =
+    maxOf { it.evOffset } - minOf { it.evOffset }

@@ -60,7 +60,25 @@ data class ViewfinderOverlayState(
     val horizonTiltDegrees: Float,
     val horizonLevelLocked: Boolean,
     val sceneBadge: SceneBadge,
+    val composition: CompositionOverlay = CompositionOverlay(),
 )
+
+/**
+ * Purely presentational mirror of camera composition preferences.
+ * Kept in `:ui-components` so overlay rendering stays independent from
+ * `:feature:settings`.
+ */
+data class CompositionOverlay(
+    val gridStyle: ViewfinderGridStyle = ViewfinderGridStyle.OFF,
+    val showCenterMark: Boolean = false,
+    val showHorizonGuide: Boolean = true,
+)
+
+enum class ViewfinderGridStyle {
+    OFF,
+    RULE_OF_THIRDS,
+    GOLDEN_RATIO,
+}
 
 /** Y plane frame used for histogram and quality estimation. */
 data class LumaFrame(

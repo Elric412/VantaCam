@@ -1,5 +1,6 @@
 package com.leica.cam.imaging_pipeline.hdr
 
+import com.leica.cam.imaging_pipeline.api.UserHdrMode
 import com.leica.cam.imaging_pipeline.pipeline.HdrMergeMode
 import com.leica.cam.imaging_pipeline.pipeline.PipelineFrame
 
@@ -55,6 +56,29 @@ object HdrModePicker {
         metadata.allFramesClipped || metadata.rawPathUnavailable -> HdrMergeMode.MERTENS_FUSION
         metadata.evSpread < 0.5f -> HdrMergeMode.WIENER_BURST
         else -> HdrMergeMode.DEBEVEC_LINEAR
+    }
+
+    fun pickWithUserOverride(
+        metadata: HdrFrameSetMetadata,
+        userMode: UserHdrMode,
+    ): HdrMergeMode {
+        if (metadata.thermalSevere) return HdrMergeMode.SINGLE_FRAME
+        return when (userMode) {
+            UserHdrMode.OFF -> HdrMergeMode.SINGLE_FRAME
+            UserHdrMode.ON -> {
+                if (metadata.rawPathUnavailable || metadata.allFramesClipped) {
+                    HdrMergeMode.MERTENS_FUSION
+                } else {
+                    HdrMergeMode.WIENER_BURST
+                }
+            }
+            UserHdrMode.SMART -> pick(metadata)
+            UserHdrMode.PRO_XDR -> when {
+                metadata.allFramesClipped || metadata.rawPathUnavailable -> HdrMergeMode.MERTENS_FUSION
+                metadata.evSpread < 0.5f -> HdrMergeMode.WIENER_BURST
+                else -> HdrMergeMode.DEBEVEC_LINEAR
+            }
+        }
     }
 }
 
