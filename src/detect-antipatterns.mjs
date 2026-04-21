@@ -2503,12 +2503,12 @@ function buildBorderOverrideMap(document, window) {
   // been truncated (e.g. a `border: 1px solid var(...)` followed by a
   // `border-left: ...` loses the first declaration but keeps the second).
   const SIDE_PROPS = [
-    ['borderLeft', 'Left'],
-    ['borderRight', 'Right'],
-    ['borderTop', 'Top'],
-    ['borderBottom', 'Bottom'],
-    ['borderInlineStart', 'Left'],
-    ['borderInlineEnd', 'Right'],
+    ['border-left', 'Left'],
+    ['border-right', 'Right'],
+    ['border-top', 'Top'],
+    ['border-bottom', 'Bottom'],
+    ['border-inline-start', 'Left'],
+    ['border-inline-end', 'Right'],
   ];
 
   for (const sheet of document.styleSheets) {
@@ -2521,7 +2521,7 @@ function buildBorderOverrideMap(document, window) {
       const perSide = {};
 
       for (const [prop, side] of SIDE_PROPS) {
-        const val = rule.style[prop];
+        const val = rule.style.getPropertyValue(prop);
         if (!val || !val.includes('var(')) continue;
         const parsed = parseShorthand(resolveVar(val));
         if (parsed && parsed.color) perSide[side] = parsed;
@@ -2529,7 +2529,7 @@ function buildBorderOverrideMap(document, window) {
 
       // Uniform `border: <w> <style> var(...)` applies to every side the
       // per-side map didn't already claim.
-      const borderAll = rule.style.border;
+      const borderAll = rule.style.getPropertyValue('border');
       if (borderAll && borderAll.includes('var(')) {
         const parsed = parseShorthand(resolveVar(borderAll));
         if (parsed && parsed.color) {
@@ -2542,12 +2542,12 @@ function buildBorderOverrideMap(document, window) {
       // Longhand `border-*-color: var(...)` with width/style in separate
       // declarations. Rare in AI-generated pages, but cheap to cover.
       for (const [prop, side] of [
-        ['borderLeftColor', 'Left'],
-        ['borderRightColor', 'Right'],
-        ['borderTopColor', 'Top'],
-        ['borderBottomColor', 'Bottom'],
+        ['border-left-color', 'Left'],
+        ['border-right-color', 'Right'],
+        ['border-top-color', 'Top'],
+        ['border-bottom-color', 'Bottom'],
       ]) {
-        const val = rule.style[prop];
+        const val = rule.style.getPropertyValue(prop);
         if (!val || !val.includes('var(')) continue;
         const resolved = resolveVar(val).trim();
         if (!resolved) continue;
