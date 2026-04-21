@@ -85,6 +85,15 @@ class ComputationalModesPhase7Test {
     }
 
     @Test
+    fun `seamless zoom fails when selected camera range width is zero`() {
+        val ranges = mapOf("BROKEN" to 2f..2f)
+
+        val result = zoomEngine.selectCamera(2f, ranges)
+
+        assertTrue(result is LeicaResult.Failure)
+    }
+
+    @Test
     fun `super resolution upscales by 2x factor`() {
         val frame = syntheticFrame(8, 8, 0.5f)
 

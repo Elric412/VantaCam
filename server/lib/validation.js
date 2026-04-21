@@ -36,5 +36,6 @@ export function isAllowedType(type) {
 
 // Sanitize a filename for use in Content-Disposition headers
 export function sanitizeFilename(filename) {
-  return filename.replace(/[^a-zA-Z0-9._-]/g, '');
+  if (filename == null) return '';
+  return String(filename).replace(/[^a-zA-Z0-9._-]/g, '');
 }

@@ -351,9 +351,18 @@ class ModelRegistry(
                     .order(java.nio.ByteOrder.nativeOrder())
                 val dummyOut = java.nio.ByteBuffer.allocateDirect(4)
                     .order(java.nio.ByteOrder.nativeOrder())
-                runCatching { sessionResult.value.run(dummyIn, dummyOut) }
+                val runResult = runCatching { sessionResult.value.run(dummyIn, dummyOut) }
                 sessionResult.value.close()
-                warmed++
+                if (runResult.getOrNull() is com.leica.cam.common.result.LeicaResult.Success) {
+                    warmed++
+                } else {
+                    val failure = runResult.getOrNull() as? com.leica.cam.common.result.LeicaResult.Failure
+                    logger(
+                        LogLevel.WARN,
+                        TAG,
+                        "Warm-up inference failed for role $role: ${failure?.message ?: runResult.exceptionOrNull()?.message ?: "unknown error"}",
+                    )
+                }
                 // Prevent OOM on low-end devices -- sequential GC hint between models
                 @Suppress("ExplicitGarbageCollectionCall")
                 System.gc()

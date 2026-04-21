@@ -311,7 +311,14 @@ class SeamlessZoomEngine {
             ?: cameraZoomRanges.keys.first()
 
         val range = cameraZoomRanges[selection]!!
-        val relativeZoom = (zoomLevel - range.start) / (range.endInclusive - range.start)
+        val rangeWidth = range.endInclusive - range.start
+        if (rangeWidth <= 0f) {
+            return LeicaResult.Failure.Pipeline(
+                PipelineStage.IMAGING_PIPELINE,
+                "Invalid zoom range for camera $selection: ${range.start}..${range.endInclusive}",
+            )
+        }
+        val relativeZoom = (zoomLevel - range.start) / rangeWidth
         val crop = 1.0f - (relativeZoom * 0.2f)
 
         return LeicaResult.Success(CameraSelection(selection, crop to crop))
