@@ -22,6 +22,7 @@ android {
 
 dependencies {
     implementation(project(":common"))
+    implementation(project(":feature:settings"))
     implementation(project(":camera-core:api"))
     implementation(project(":native-imaging-core:api"))
     implementation(project(":imaging-pipeline:api"))
