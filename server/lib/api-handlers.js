@@ -33,8 +33,14 @@ export async function getSkills() {
 		const skillMdPath = join(skillsDir, entry.name, "SKILL.md");
 		if (!existsSync(skillMdPath)) continue;
 
-		const content = await readFileContent(skillMdPath);
-		const { frontmatter } = parseFrontmatter(content);
+		let frontmatter;
+		try {
+			const content = await readFileContent(skillMdPath);
+			({ frontmatter } = parseFrontmatter(content));
+		} catch (error) {
+			console.warn(`Skipping malformed SKILL.md for '${entry.name}':`, error);
+			continue;
+		}
 
 		skills.push({
 			id: entry.name,
@@ -64,6 +70,11 @@ export async function getCommandSource(id) {
 	try {
 		if (!existsSync(skillPath)) {
 			return null;
+		}
+		const allSkills = await getSkills();
+		const requested = allSkills.find((skill) => skill.id === id);
+		if (!requested?.userInvocable) {
+			return { error: "Command not found", status: 404 };
 		}
 		const content = await readFileContent(skillPath);
 		return content;

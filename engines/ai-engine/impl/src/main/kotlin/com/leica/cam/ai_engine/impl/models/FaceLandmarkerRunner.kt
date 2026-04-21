@@ -1,6 +1,7 @@
 package com.leica.cam.ai_engine.impl.models
 
 import android.content.Context
+import android.graphics.Bitmap
 import com.leica.cam.common.result.LeicaResult
 import com.leica.cam.common.result.PipelineStage
 import javax.inject.Inject
@@ -147,14 +148,61 @@ class FaceLandmarkerRunner @Inject constructor(
         width: Int,
         height: Int,
     ): FaceLandmarkerOutput {
-        // Simplified: in production, this builds an MPImage from the pixel array
-        // and calls handle.detect(mpImage). Here we return a placeholder that
-        // downstream consumers check via .faces.isNotEmpty().
+        val bitmap = Bitmap.createBitmap(pixels, width, height, Bitmap.Config.ARGB_8888)
+        val mpImage = createMpImage(bitmap)
+        val detectMethod = handle.javaClass.methods.firstOrNull {
+            it.name == "detect" && it.parameterCount == 1
+        } ?: throw IllegalStateException("FaceLandmarker.detect(MPImage) method not found")
+        val detectResult = detectMethod.invoke(handle, mpImage)
+        return parseDetectResult(detectResult, width, height)
+    }
+
+    private fun createMpImage(bitmap: Bitmap): Any {
+        val imageBuilderClass = Class.forName("com.google.mediapipe.framework.image.BitmapImageBuilder")
+        val builder = imageBuilderClass.getDeclaredConstructor(Bitmap::class.java).newInstance(bitmap)
+        val buildMethod = imageBuilderClass.getMethod("build")
+        return buildMethod.invoke(builder)
+    }
+
+    private fun parseDetectResult(
+        detectResult: Any?,
+        width: Int,
+        height: Int,
+    ): FaceLandmarkerOutput {
+        if (detectResult == null) {
+            return FaceLandmarkerOutput(emptyList(), width, height)
+        }
+
+        val faceLandmarksMethod = detectResult.javaClass.methods.firstOrNull {
+            it.name == "faceLandmarks" && it.parameterCount == 0
+        } ?: return FaceLandmarkerOutput(emptyList(), width, height)
+        val facesRaw = faceLandmarksMethod.invoke(detectResult) as? List<*> ?: emptyList<Any>()
+
+        val faces = facesRaw.mapNotNull { faceRaw ->
+            val pointsRaw = faceRaw as? List<*> ?: return@mapNotNull null
+            val points = pointsRaw.mapNotNull { point ->
+                point?.let {
+                    val x = invokeFloatGetter(it, "x") ?: return@let null
+                    val y = invokeFloatGetter(it, "y") ?: return@let null
+                    val z = invokeFloatGetter(it, "z") ?: 0f
+                    Triple(x, y, z)
+                }
+            }
+            if (points.isEmpty()) return@mapNotNull null
+            FaceLandmarks(points = points, confidence = 1f)
+        }
+
         return FaceLandmarkerOutput(
-            faces = emptyList(),
+            faces = faces,
             imageWidth = width,
             imageHeight = height,
         )
+    }
+
+    private fun invokeFloatGetter(target: Any, methodName: String): Float? {
+        val method = target.javaClass.methods.firstOrNull { it.name == methodName && it.parameterCount == 0 }
+            ?: return null
+        return (method.invoke(target) as? Number)?.toFloat()
     }
 }
 

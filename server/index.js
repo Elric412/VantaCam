@@ -49,14 +49,20 @@ const server = serve({
     // Generated sub-pages — served directly from the pre-generated files
     "/skills": () => serveGenerated(path.join(ROOT_DIR, "public/skills/index.html")),
     "/skills/:id": (req) => {
-      const id = req.params.id.replace(/[^a-z0-9-]/gi, "");
+      const id = req.params.id;
+      if (!/^[a-z0-9-]+$/i.test(id)) {
+        return new Response("Bad Request", { status: 400 });
+      }
       return serveGenerated(path.join(ROOT_DIR, `public/skills/${id}.html`));
     },
     "/anti-patterns": () => serveGenerated(path.join(ROOT_DIR, "public/anti-patterns/index.html")),
     "/visual-mode": () => serveGenerated(path.join(ROOT_DIR, "public/visual-mode/index.html")),
     "/tutorials": () => serveGenerated(path.join(ROOT_DIR, "public/tutorials/index.html")),
     "/tutorials/:slug": (req) => {
-      const slug = req.params.slug.replace(/[^a-z0-9-]/gi, "");
+      const slug = req.params.slug;
+      if (!/^[a-z0-9-]+$/i.test(slug)) {
+        return new Response("Bad Request", { status: 400 });
+      }
       return serveGenerated(path.join(ROOT_DIR, `public/tutorials/${slug}.html`));
     },
 
@@ -190,14 +196,14 @@ const server = serve({
   },
   
   // Serve root-level static files (og-image.png, favicon, robots.txt, etc.)
-  fetch(req) {
+  async fetch(req) {
     const url = new URL(req.url);
     if (url.pathname.includes('..')) {
       return new Response("Bad Request", { status: 400 });
     }
     const filePath = `./public${url.pathname}`;
     const staticFile = file(filePath);
-    if (staticFile.size > 0) {
+    if (await staticFile.exists()) {
       return new Response(staticFile);
     }
     return new Response("Not Found", { status: 404 });
@@ -207,4 +213,3 @@ const server = serve({
 });
 
 console.log(`🎨 impeccable.style running at ${server.url}`);
-
