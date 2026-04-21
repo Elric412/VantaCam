@@ -1,0 +1,13 @@
+{
+  "name": "vantacam",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "test:bun": "bun test",
+    "test:node": "node --test tests/detect-antipatterns-fixtures.test.mjs tests/cleanup-deprecated.test.mjs"
+  },
+  "dependencies": {
+    "jsdom": "^24.1.0"
+  }
+}
