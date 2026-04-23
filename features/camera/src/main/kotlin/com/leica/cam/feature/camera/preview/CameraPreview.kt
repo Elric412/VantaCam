@@ -5,15 +5,15 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.leica.cam.sensor_hal.session.Camera2CameraController
 import com.leica.cam.sensor_hal.session.CameraSessionManager
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 @Composable
@@ -24,15 +24,48 @@ fun CameraPreview(
 ) {
     val context = LocalContext.current
     val owner = LocalLifecycleOwner.current
-    val previewView = remember { PreviewView(context).apply { scaleType = PreviewView.ScaleType.FILL_CENTER } }
+    val coroutineScope = rememberCoroutineScope()
+    val previewView = remember(context) {
+        PreviewView(context).apply {
+            scaleType = PreviewView.ScaleType.FILL_CENTER
+            implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+        }
+    }
 
-    DisposableEffect(owner) {
+    DisposableEffect(owner, previewView, controller, sessionManager) {
         controller.attach(previewView, owner)
-        val scope = CoroutineScope(Dispatchers.Main)
-        val job: Job = scope.launch { runCatching { sessionManager.openSession() } }
+
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_START -> {
+                    controller.attach(previewView, owner)
+                    coroutineScope.launch {
+                        runCatching { sessionManager.openSession() }
+                    }
+                }
+
+                Lifecycle.Event.ON_STOP -> {
+                    coroutineScope.launch {
+                        runCatching { sessionManager.closeSession() }
+                    }
+                }
+
+                else -> Unit
+            }
+        }
+
+        owner.lifecycle.addObserver(observer)
+        if (owner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+            coroutineScope.launch {
+                runCatching { sessionManager.openSession() }
+            }
+        }
+
         onDispose {
-            job.cancel()
-            scope.launch { runCatching { sessionManager.closeSession() } }
+            owner.lifecycle.removeObserver(observer)
+            coroutineScope.launch {
+                runCatching { sessionManager.closeSession() }
+            }
         }
     }
 

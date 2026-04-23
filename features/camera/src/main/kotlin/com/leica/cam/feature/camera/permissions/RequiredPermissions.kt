@@ -5,16 +5,17 @@ import android.os.Build
 
 /**
  * Canonical list of runtime permissions the camera experience requires.
- * Split into "must-have" (camera, audio for video) and "nice-to-have"
- * (location, media). Only must-have blocks the UI.
+ *
+ * The camera screen blocks only on camera access. Microphone, media access, and
+ * location are requested contextually by the flows that need them.
  */
 object RequiredPermissions {
     val mustHave: List<String> = listOf(
         Manifest.permission.CAMERA,
-        Manifest.permission.RECORD_AUDIO,
     )
 
     val niceToHave: List<String> = buildList {
+        add(Manifest.permission.RECORD_AUDIO)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             add(Manifest.permission.READ_MEDIA_IMAGES)
             add(Manifest.permission.READ_MEDIA_VIDEO)

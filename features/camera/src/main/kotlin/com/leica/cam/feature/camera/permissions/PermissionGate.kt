@@ -23,9 +23,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.MultiplePermissionsState
-import com.google.accompanist.permissions.PermissionState
+import com.google.accompanist.permissions.PermissionStatus
 import com.google.accompanist.permissions.rememberMultiplePermissionsState
 import com.leica.cam.ui_components.theme.LeicaTokens
 
@@ -34,44 +35,51 @@ import com.leica.cam.ui_components.theme.LeicaTokens
 fun PermissionGate(
     content: @Composable () -> Unit,
 ) {
-    val state: MultiplePermissionsState = rememberMultiplePermissionsState(
-        permissions = RequiredPermissions.all,
+    val state = rememberMultiplePermissionsState(
+        permissions = RequiredPermissions.mustHave,
     )
 
-    // Auto-request exactly once on first composition. The user can tap the
-    // button to re-request if they deny.
-    LaunchedEffect(Unit) {
-        if (!state.allPermissionsGranted) {
+    val permissionState = remember(state.permissions) {
+        LeicaPermissionReducer.reduce(
+            grants = state.permissions.associate { permissionState ->
+                permissionState.permission to (permissionState.status is PermissionStatus.Granted)
+            },
+            rationales = state.permissions.associate { permissionState ->
+                permissionState.permission to when (val status = permissionState.status) {
+                    is PermissionStatus.Denied -> status.shouldShowRationale
+                    PermissionStatus.Granted -> false
+                }
+            },
+            required = RequiredPermissions.mustHave,
+        )
+    }
+
+    LaunchedEffect(permissionState) {
+        if (permissionState == LeicaPermissionState.Unknown) {
             state.launchMultiplePermissionRequest()
         }
     }
 
-    val mustHaveGranted = remember(state.permissions) {
-        state.permissions
-            .filter { it.permission in RequiredPermissions.mustHave }
-            .all { it.status.isGranted() }
-    }
-
-    if (mustHaveGranted) {
+    if (permissionState == LeicaPermissionState.AllGranted) {
         content()
     } else {
-        PermissionRationaleScreen(state)
+        PermissionRationaleScreen(
+            state = state,
+            permissionState = permissionState,
+        )
     }
 }
 
 @OptIn(ExperimentalPermissionsApi::class)
-private fun PermissionState.Companion_isGranted_placeholder() {}
-
-@OptIn(ExperimentalPermissionsApi::class)
-private fun com.google.accompanist.permissions.PermissionStatus.isGranted(): Boolean =
-    this is com.google.accompanist.permissions.PermissionStatus.Granted
-
-@OptIn(ExperimentalPermissionsApi::class)
 @Composable
-private fun PermissionRationaleScreen(state: MultiplePermissionsState) {
+private fun PermissionRationaleScreen(
+    state: MultiplePermissionsState,
+    permissionState: LeicaPermissionState,
+) {
     val context = LocalContext.current
     val colors = LeicaTokens.colors
     val spacing = LeicaTokens.spacing
+    val isPermanentlyDenied = permissionState is LeicaPermissionState.PermanentlyDenied
 
     Box(
         modifier = Modifier
@@ -85,29 +93,25 @@ private fun PermissionRationaleScreen(state: MultiplePermissionsState) {
             verticalArrangement = Arrangement.spacedBy(spacing.l),
         ) {
             Text(
-                text = "LeicaCam needs your permission",
+                text = "Camera access is required",
                 style = MaterialTheme.typography.headlineSmall,
                 color = colors.onBackground,
             )
             Text(
-                text = "Camera and microphone access are required to capture photos " +
-                    "and video. Location is optional (adds EXIF geotag). Media access " +
-                    "is needed to save and review images.",
+                text = if (isPermanentlyDenied) {
+                    "LeicaCam cannot start the live viewfinder until Android camera access is re-enabled in Settings."
+                } else {
+                    "Grant camera permission to open the real viewfinder. Microphone, media, and location access are optional and requested only when those features are used."
+                },
                 style = MaterialTheme.typography.bodyMedium,
                 color = colors.onSurfaceMuted,
             )
-
-            val permanentlyDenied = state.permissions.any {
-                !it.status.isGranted() &&
-                    !it.status.shouldShowRationale &&
-                    it.permission in RequiredPermissions.mustHave
-            }
 
             Spacer(Modifier.height(spacing.s))
 
             Button(
                 onClick = {
-                    if (permanentlyDenied) {
+                    if (isPermanentlyDenied) {
                         val intent = Intent(
                             Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
                             Uri.fromParts("package", context.packageName, null),
@@ -121,13 +125,10 @@ private fun PermissionRationaleScreen(state: MultiplePermissionsState) {
                     containerColor = colors.brand,
                     contentColor = colors.onBackground,
                 ),
-                shape = RoundedCornerShape(4.dp_),
+                shape = RoundedCornerShape(4.dp),
             ) {
-                Text(if (permanentlyDenied) "OPEN SETTINGS" else "GRANT PERMISSIONS")
+                Text(if (isPermanentlyDenied) "OPEN SETTINGS" else "GRANT CAMERA ACCESS")
             }
         }
     }
 }
-
-// Local helper so we don't import extra compose-ui dp alias in the button shape.
-private val Int.dp_: androidx.compose.ui.unit.Dp get() = androidx.compose.ui.unit.Dp(this.toFloat())

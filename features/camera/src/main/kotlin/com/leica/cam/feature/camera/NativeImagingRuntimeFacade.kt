@@ -5,7 +5,7 @@ import com.leica.cam.nativeimagingcore.CaptureMetadata
 import com.leica.cam.nativeimagingcore.FrameHandle
 import com.leica.cam.nativeimagingcore.AdvancedHdrConfig
 import com.leica.cam.nativeimagingcore.HyperToneWbConfig
-import com.leica.cam.nativeimagingcore.ImagingRuntimeOrchestrator
+import com.leica.cam.nativeimagingcore.INativeImagingOrchestrator
 import com.leica.cam.nativeimagingcore.LutDescriptor
 import com.leica.cam.nativeimagingcore.NativeGpuBackend
 import com.leica.cam.nativeimagingcore.NativeSessionConfig
@@ -17,7 +17,7 @@ import com.leica.cam.nativeimagingcore.ProcessingRequest
  * Keeps Kotlin orchestration lightweight and delegates heavy work to NDK core.
  */
 class NativeImagingRuntimeFacade(
-    private val orchestrator: ImagingRuntimeOrchestrator,
+    private val orchestrator: INativeImagingOrchestrator,
 ) {
     fun startSession(sessionId: String): LeicaResult<Unit> {
         val config = NativeSessionConfig(sessionId = sessionId)

@@ -40,9 +40,11 @@ dependencies {
     implementation(project(":bokeh-engine:api"))
     implementation(project(":neural-isp:api"))
     implementation(project(":smart-imaging:api"))
+    implementation(project(":sensor-hal"))
     implementation(project(":ui-components"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.kotlinx.coroutines.core)
+    implementation(libs.kotlinx.coroutines.android)
     implementation(libs.hilt.android)
     kapt(libs.hilt.compiler)
 

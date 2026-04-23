@@ -8,6 +8,10 @@ object Logger {
         delegate.fine("LeicaCam/$tag: $message")
     }
 
+    fun i(tag: String, message: String) {
+        delegate.info("LeicaCam/$tag: $message")
+    }
+
     fun e(tag: String, message: String, throwable: Throwable? = null) {
         delegate.severe(buildString {
             append("LeicaCam/")

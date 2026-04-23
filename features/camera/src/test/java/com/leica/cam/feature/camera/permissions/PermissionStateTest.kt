@@ -16,6 +16,15 @@ class PermissionStateTest {
     }
 
     @Test
+    fun `camera grant is sufficient even when microphone is denied`() {
+        val result = LeicaPermissionReducer.reduce(
+            grants = mapOf(Manifest.permission.CAMERA to true, Manifest.permission.RECORD_AUDIO to false),
+            rationales = mapOf(Manifest.permission.RECORD_AUDIO to false),
+        )
+        assertEquals(LeicaPermissionState.AllGranted, result)
+    }
+
+    @Test
     fun `rationale visible returns NeedsRationale`() {
         val result = LeicaPermissionReducer.reduce(
             grants = mapOf(Manifest.permission.CAMERA to false, Manifest.permission.RECORD_AUDIO to true),

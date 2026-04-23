@@ -17,7 +17,9 @@ internal fun Project.configureKotlinCompilation() {
         toolchain { languageVersion.set(org.gradle.jvm.toolchain.JavaLanguageVersion.of(17)) }
     }
     tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile::class.java).configureEach {
-        compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) }
+        kotlinOptions {
+            jvmTarget = JavaVersion.VERSION_17.toString()
+        }
     }
 }
 

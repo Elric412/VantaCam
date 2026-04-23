@@ -1,5 +1,6 @@
 package com.leica.cam.feature.settings.ui
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -17,6 +18,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.leica.cam.ui_components.theme.LeicaBlack
 import com.leica.cam.ui_components.theme.LeicaWhite
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel(),
