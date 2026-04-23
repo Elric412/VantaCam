@@ -8,7 +8,7 @@ interface IPhotonMatrixAssembler {
         enhanced: PhotonBuffer,
         outputMode: ProXdrOutputMode,
         metadata: OutputMetadata,
-    ): LeicaResult<LumoOutputPackage>
+    ): LeicaResult<PhotonAssemblyOutput>
 
     data class OutputMetadata(
         val xmp: ByteArray = byteArrayOf(),
@@ -17,4 +17,17 @@ interface IPhotonMatrixAssembler {
     )
 }
 
-typealias LumoOutputPackage = com.leica.cam.smart_imaging.LumoOutputPackage
+data class PhotonAssemblyOutput(
+    val finalBuffer: PhotonBuffer,
+    val outputMode: ProXdrOutputMode,
+    val toneProfile: String,
+    val metadata: CaptureMetadata,
+) {
+    data class CaptureMetadata(
+        val iso: Int,
+        val exposureTimeNs: Long,
+        val focalLengthMm: Float,
+        val whiteBalanceKelvin: Float,
+        val timestampNs: Long,
+    )
+}

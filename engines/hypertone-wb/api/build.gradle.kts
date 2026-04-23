@@ -4,5 +4,7 @@ plugins {
 }
 
 dependencies {
+    api(project(":color-science:api"))
+    api(project(":photon-matrix:api"))
     implementation(project(":common"))
 }

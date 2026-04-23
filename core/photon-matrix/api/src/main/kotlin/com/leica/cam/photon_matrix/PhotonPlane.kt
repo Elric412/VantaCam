@@ -1,5 +1,6 @@
 package com.leica.cam.photon_matrix
 
+import com.leica.cam.hardware.contracts.photon.PhotonBuffer
 import java.nio.ShortBuffer
 
 /**
@@ -15,9 +16,11 @@ data class PhotonPlane(
     val bitDepth: PhotonBuffer.BitDepth,
 ) {
     init {
-        require(bitDepth != PhotonBuffer.BitDepth.BIT_10 ||
-            bitDepth != PhotonBuffer.BitDepth.BIT_12 ||
-            bitDepth != PhotonBuffer.BitDepth.BIT_16) {
+        require(
+            bitDepth == PhotonBuffer.BitDepth.BITS_10 ||
+                bitDepth == PhotonBuffer.BitDepth.BITS_12 ||
+                bitDepth == PhotonBuffer.BitDepth.BITS_16,
+        ) {
             "PhotonPlane bitDepth must be >= 10 bits"
         }
     }

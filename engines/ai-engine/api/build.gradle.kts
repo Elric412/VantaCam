@@ -4,5 +4,6 @@ plugins {
 }
 
 dependencies {
+    api(project(":photon-matrix:api"))
     implementation(project(":common"))
 }

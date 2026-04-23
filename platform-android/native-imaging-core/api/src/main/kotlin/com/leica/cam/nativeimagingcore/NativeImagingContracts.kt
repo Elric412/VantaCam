@@ -117,7 +117,7 @@ data class LutDescriptor(
     val payload: FloatArray,
 )
 
-internal fun SessionState.canTransitionTo(next: SessionState): Boolean {
+fun SessionState.canTransitionTo(next: SessionState): Boolean {
     return when (this) {
         SessionState.CREATED -> next == SessionState.WARM || next == SessionState.CLOSED
         SessionState.WARM -> next == SessionState.RUNNING || next == SessionState.CLOSED
@@ -127,6 +127,6 @@ internal fun SessionState.canTransitionTo(next: SessionState): Boolean {
     }
 }
 
-internal fun illegalTransition(current: SessionState, next: SessionState): LeicaResult.Failure {
+fun illegalTransition(current: SessionState, next: SessionState): LeicaResult.Failure {
     return LeicaResult.Failure.Pipeline(PipelineStage.SESSION, "Illegal session state transition from $current to $next")
 }
