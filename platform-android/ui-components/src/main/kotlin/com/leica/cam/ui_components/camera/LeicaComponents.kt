@@ -49,11 +49,12 @@ fun LeicaShutterButton(
     Box(
         modifier = modifier
             .size(80.dp)
+            .scale(innerCircleScale)
             .semantics {
                 contentDescription = "Take Photo"
                 role = Role.Button
             }
-            .background(Color.Transparent, CircleShape)
+            .background(Color.White, CircleShape)
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
@@ -61,17 +62,6 @@ fun LeicaShutterButton(
             ),
         contentAlignment = Alignment.Center
     ) {
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            drawCircle(
-                color = Color.White,
-                radius = size.minDimension / 2,
-                style = Stroke(width = 4.dp.toPx())
-            )
-            drawCircle(
-                color = LeicaRed,
-                radius = (size.minDimension / 2 - 8.dp.toPx()) * innerCircleScale
-            )
-        }
     }
 }
 
@@ -93,19 +83,27 @@ fun LeicaModeSwitcher(
     ) {
         itemsIndexed(modes) { _, mode ->
             val isSelected = mode == selectedMode
-            Text(
-                text = mode.name,
-                color = if (isSelected) LeicaRed else Color.White,
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+            Column(
                 modifier = Modifier
                     .padding(horizontal = 12.dp)
                     .semantics {
                         contentDescription = "Mode ${mode.name}${if (isSelected) ", selected" else ""}"
                         role = Role.Button
                     }
-                    .clickable { onModeSelected(mode) }
-            )
+                    .clickable { onModeSelected(mode) },
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = mode.name,
+                    color = Color.White,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                )
+                if (isSelected) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Box(modifier = Modifier.size(4.dp).background(LeicaRed, CircleShape))
+                }
+            }
         }
     }
 }

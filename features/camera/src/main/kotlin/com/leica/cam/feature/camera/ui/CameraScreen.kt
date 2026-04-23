@@ -6,6 +6,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,6 +16,19 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoFixHigh
+import androidx.compose.material.icons.filled.Camera
+import androidx.compose.material.icons.filled.Cameraswitch
+import androidx.compose.material.icons.filled.FlashOn
+import androidx.compose.material.icons.filled.HdrOn
+import androidx.compose.material.icons.filled.Lens
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -27,6 +41,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.leica.cam.feature.camera.controls.CaptureControlsViewModel
@@ -39,8 +54,6 @@ import com.leica.cam.ui_components.camera.AfBracket
 import com.leica.cam.ui_components.camera.CameraGesture
 import com.leica.cam.ui_components.camera.CameraMode
 import com.leica.cam.ui_components.camera.CompositionOverlay
-import com.leica.cam.ui_components.camera.LeicaControlDial
-import com.leica.cam.ui_components.camera.LeicaDialSheet
 import com.leica.cam.ui_components.camera.LeicaModeSwitcher
 import com.leica.cam.ui_components.camera.LeicaShutterButton
 import com.leica.cam.ui_components.camera.LumaFrame
@@ -48,6 +61,7 @@ import com.leica.cam.ui_components.camera.Phase9UiStateCalculator
 import com.leica.cam.ui_components.camera.SceneBadge
 import com.leica.cam.ui_components.camera.ViewfinderGridStyle
 import com.leica.cam.ui_components.camera.ViewfinderOverlay
+import com.leica.cam.ui_components.theme.LeicaRed
 import com.leica.cam.ui_components.theme.LeicaTokens
 import javax.inject.Inject
 import kotlinx.coroutines.launch
@@ -76,7 +90,6 @@ fun CameraScreen(
     val coroutineScope = rememberCoroutineScope()
 
     val preferences by deps.preferences.state.collectAsState()
-    val captureState by controlsVm.state.collectAsState()
 
     val composition = remember(preferences.grid) {
         CompositionOverlay(
@@ -105,43 +118,96 @@ fun CameraScreen(
         ).copy(composition = composition)
     }
 
-    // Which dial has an open sheet, if any.
-    var openDial by remember { mutableStateOf<String?>(null) }
+    var currentZoom by rememberSaveable { mutableStateOf("1x") }
 
     Box(modifier = Modifier.fillMaxSize().background(tokens.background)) {
 
-        // Real preview — replaces the old grey Box.
-        CameraPreview(
+        // Real preview & viewfinder
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(bottom = 220.dp),
-            controller = deps.cameraController,
-            sessionManager = deps.sessionManager,
-        )
+                .padding(bottom = 220.dp)
+        ) {
+            CameraPreview(
+                modifier = Modifier.fillMaxSize(),
+                controller = deps.cameraController,
+                sessionManager = deps.sessionManager,
+            )
 
-        ViewfinderOverlay(
-            state = overlayState,
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(bottom = 220.dp),
-        )
+            ViewfinderOverlay(
+                state = overlayState,
+                modifier = Modifier.fillMaxSize(),
+            )
+
+            // Zoom control pill
+            Row(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = spacing.m)
+                    .background(tokens.surfaceTranslucent, CircleShape)
+                    .padding(horizontal = spacing.m, vertical = spacing.s),
+                horizontalArrangement = Arrangement.spacedBy(spacing.m)
+            ) {
+                listOf("0.6", "1x", "2").forEach { zoom ->
+                    Text(
+                        text = zoom,
+                        color = if (currentZoom == zoom) tokens.onBackground else tokens.onSurfaceMuted,
+                        style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.clickable { currentZoom = zoom }
+                    )
+                }
+            }
+
+            // Wand filter icon
+            IconButton(
+                onClick = { },
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .padding(end = spacing.m)
+                    .background(tokens.surfaceTranslucent, CircleShape)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.AutoFixHigh,
+                    contentDescription = "Wand",
+                    tint = tokens.onBackground
+                )
+            }
+        }
 
         // Top HUD
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = spacing.l, vertical = spacing.m),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = spacing.l, vertical = spacing.m)
+                .align(Alignment.TopCenter),
             horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("BATT 85%", color = tokens.onSurfaceMuted, style = MaterialTheme.typography.labelSmall)
-            AnimatedContent(
-                targetState = overlayState.sceneBadge.label.uppercase(),
-                transitionSpec = {
-                    (fadeIn(tween(180)) togetherWith fadeOut(tween(120)))
-                },
-                label = "sceneBadge",
-            ) { label ->
-                Text(label, color = tokens.onBackground, style = MaterialTheme.typography.labelMedium)
+            IconButton(onClick = { }) {
+                Icon(Icons.Default.FlashOn, contentDescription = "Flash", tint = tokens.onBackground)
             }
-            Text("SD 12.4GB", color = tokens.onSurfaceMuted, style = MaterialTheme.typography.labelSmall)
+            IconButton(onClick = { }) {
+                Icon(Icons.Default.HdrOn, contentDescription = "HDR", tint = tokens.onBackground)
+            }
+            Box(
+                modifier = Modifier
+                    .size(32.dp)
+                    .background(LeicaRed, CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Camera,
+                    contentDescription = "Leica",
+                    tint = Color.White,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+            IconButton(onClick = { }) {
+                Icon(Icons.Default.Lens, contentDescription = "Lens", tint = tokens.onBackground)
+            }
+            IconButton(onClick = { }) {
+                Icon(Icons.Default.Menu, contentDescription = "Menu", tint = tokens.onBackground)
+            }
         }
 
         // Bottom chrome
@@ -150,35 +216,9 @@ fun CameraScreen(
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
                 .background(tokens.surfaceTranslucent)
-                .padding(bottom = spacing.xl),
+                .padding(bottom = spacing.xl, top = spacing.m),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(vertical = spacing.l),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-            ) {
-                LeicaControlDial(
-                    label = "ISO",
-                    value = if (captureState.isAuto) "AUTO" else captureState.iso.toString(),
-                    onValueChange = { openDial = "iso" },
-                )
-                LeicaControlDial(
-                    label = "Shutter",
-                    value = if (captureState.isAuto) "AUTO" else captureState.shutterLabel,
-                    onValueChange = { openDial = "shutter" },
-                )
-                LeicaControlDial(
-                    label = "EV",
-                    value = captureState.evLabel,
-                    onValueChange = { openDial = "ev" },
-                )
-                LeicaControlDial(
-                    label = "WB",
-                    value = captureState.wbLabel,
-                    onValueChange = { openDial = "wb" },
-                )
-            }
-
             LeicaModeSwitcher(
                 modes = CameraMode.entries,
                 selectedMode = currentMode,
@@ -188,61 +228,40 @@ fun CameraScreen(
                 },
             )
 
-            Spacer(modifier = Modifier.height(spacing.xl))
+            Spacer(modifier = Modifier.height(spacing.l))
 
-            LeicaShutterButton(onClick = {
-                deps.orchestrator.handleGesture(CameraGesture.Tap(0.5f, 0.5f), 1.0f)
-                coroutineScope.launch {
-                    runCatching { deps.sessionManager.capture() }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = spacing.xl),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = { }) {
+                    Icon(
+                        imageVector = Icons.Default.PhotoLibrary,
+                        contentDescription = "Gallery",
+                        tint = tokens.onBackground,
+                        modifier = Modifier.size(32.dp)
+                    )
                 }
-            })
-        }
 
-        // Dial sheets
-        when (openDial) {
-            "iso" -> LeicaDialSheet(
-                title = "ISO",
-                options = controlsVm.isoOptions.map { it.toString() },
-                selectedIndex = controlsVm.isoOptions.indexOf(captureState.iso).coerceAtLeast(0),
-                onSelect = { idx ->
-                    controlsVm.setIso(controlsVm.isoOptions[idx]); openDial = null
-                },
-                onDismiss = { openDial = null },
-            )
-            "shutter" -> LeicaDialSheet(
-                title = "SHUTTER",
-                options = controlsVm.shutterUsOptions.map { formatShutterUs(it) },
-                selectedIndex = controlsVm.shutterUsOptions.indexOf(captureState.shutterUs).coerceAtLeast(0),
-                onSelect = { idx ->
-                    controlsVm.setShutter(controlsVm.shutterUsOptions[idx]); openDial = null
-                },
-                onDismiss = { openDial = null },
-            )
-            "ev" -> LeicaDialSheet(
-                title = "EV",
-                options = controlsVm.evOptions.map { "%+.1f".format(it) },
-                selectedIndex = controlsVm.evOptions.indexOfFirst {
-                    kotlin.math.abs(it - captureState.exposureEv) < 0.05f
-                }.coerceAtLeast(0),
-                onSelect = { idx ->
-                    controlsVm.setExposureEv(controlsVm.evOptions[idx]); openDial = null
-                },
-                onDismiss = { openDial = null },
-            )
-            "wb" -> LeicaDialSheet(
-                title = "WHITE BALANCE",
-                options = controlsVm.wbOptions.map { "${it}K" },
-                selectedIndex = controlsVm.wbOptions.indexOf(captureState.whiteBalanceKelvin).coerceAtLeast(0),
-                onSelect = { idx ->
-                    controlsVm.setWhiteBalance(controlsVm.wbOptions[idx]); openDial = null
-                },
-                onDismiss = { openDial = null },
-            )
+                LeicaShutterButton(onClick = {
+                    deps.orchestrator.handleGesture(CameraGesture.Tap(0.5f, 0.5f), 1.0f)
+                    coroutineScope.launch {
+                        runCatching { deps.sessionManager.capture() }
+                    }
+                })
+
+                IconButton(onClick = { }) {
+                    Icon(
+                        imageVector = Icons.Default.Cameraswitch,
+                        contentDescription = "Switch Camera",
+                        tint = tokens.onBackground,
+                        modifier = Modifier.size(32.dp)
+                    )
+                }
+            }
         }
     }
-}
-
-private fun formatShutterUs(us: Long): String = when {
-    us >= 1_000_000L -> "%.1fs".format(us / 1_000_000.0)
-    else -> "1/${(1_000_000.0 / us).toInt().coerceAtLeast(1)}"
 }
