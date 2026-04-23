@@ -68,39 +68,54 @@ fun GalleryScreen(
         }
 
         // Metadata Panel (Overlay when item selected)
-        selectedItem?.let { item ->
-            val panelResult = engine.buildMetadataPanel(item)
-            if (panelResult is com.leica.cam.common.result.LeicaResult.Success) {
-                val panel = panelResult.value
-                Surface(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .fillMaxWidth()
-                        .fillMaxHeight(0.4f),
-                    color = LeicaBlack.copy(alpha = 0.9f),
-                    contentColor = LeicaWhite
-                ) {
-                    Column(modifier = Modifier.padding(24.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(panel.headline, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                            Text("CLOSE", modifier = Modifier.clickable { selectedItem = null }, color = LeicaRed, style = MaterialTheme.typography.labelMedium)
-                        }
-
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        Row(modifier = Modifier.fillMaxWidth()) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                panel.captureDetails.forEach { (label, value) ->
-                                    MetadataItem(label, value)
-                                }
+        androidx.compose.animation.AnimatedVisibility(
+            visible = selectedItem != null,
+            enter = androidx.compose.animation.slideInVertically(
+                animationSpec = androidx.compose.animation.core.tween(com.leica.cam.ui_components.theme.LeicaTokens.motion.standard)
+            ) { it } + androidx.compose.animation.fadeIn(
+                animationSpec = androidx.compose.animation.core.tween(com.leica.cam.ui_components.theme.LeicaTokens.motion.standard)
+            ),
+            exit = androidx.compose.animation.slideOutVertically(
+                animationSpec = androidx.compose.animation.core.tween(com.leica.cam.ui_components.theme.LeicaTokens.motion.standard)
+            ) { it } + androidx.compose.animation.fadeOut(
+                animationSpec = androidx.compose.animation.core.tween(com.leica.cam.ui_components.theme.LeicaTokens.motion.standard)
+            ),
+            modifier = Modifier.align(Alignment.BottomCenter)
+        ) {
+            val item = selectedItem
+            if (item != null) {
+                val panelResult = engine.buildMetadataPanel(item)
+                if (panelResult is com.leica.cam.common.result.LeicaResult.Success) {
+                    val panel = panelResult.value
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .fillMaxHeight(0.4f),
+                        color = LeicaBlack.copy(alpha = 0.9f),
+                        contentColor = LeicaWhite
+                    ) {
+                        Column(modifier = Modifier.padding(24.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(panel.headline, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                                Text("CLOSE", modifier = Modifier.clickable { selectedItem = null }, color = LeicaRed, style = MaterialTheme.typography.labelMedium)
                             }
-                            Column(modifier = Modifier.weight(1f)) {
-                                panel.technicalDetails.forEach { (label, value) ->
-                                    MetadataItem(label, value)
+
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            Row(modifier = Modifier.fillMaxWidth()) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    panel.captureDetails.forEach { (label, value) ->
+                                        MetadataItem(label, value)
+                                    }
+                                }
+                                Column(modifier = Modifier.weight(1f)) {
+                                    panel.technicalDetails.forEach { (label, value) ->
+                                        MetadataItem(label, value)
+                                    }
                                 }
                             }
                         }

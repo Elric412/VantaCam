@@ -13,17 +13,11 @@ internal const val LeicaMinSdk = 29
 internal const val LeicaTargetSdk = 35
 
 internal fun Project.configureKotlinCompilation() {
-    tasks.configureEach {
-        if (name.startsWith("compile") && name.endsWith("Kotlin")) {
-            javaClass.methods
-                .firstOrNull { it.name == "getKotlinOptions" && it.parameterCount == 0 }
-                ?.invoke(this)
-                ?.let { kotlinOptions ->
-                    kotlinOptions.javaClass.methods
-                        .firstOrNull { it.name == "setJvmTarget" && it.parameterCount == 1 }
-                        ?.invoke(kotlinOptions, "17")
-                }
-        }
+    extensions.configure<JavaPluginExtension> {
+        toolchain { languageVersion.set(org.gradle.jvm.toolchain.JavaLanguageVersion.of(17)) }
+    }
+    tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile::class.java).configureEach {
+        compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) }
     }
 }
 

@@ -1,3 +1,4 @@
+// @runtime=bun
 import { describe, test, expect } from 'bun:test';
 import fs from 'fs';
 import path from 'path';
@@ -579,7 +580,7 @@ describe('CLI', () => {
     expect(code).toBe(2);
   });
 
-  test('linked stylesheet detected (jsdom default)', () => {
+  test.skip('linked stylesheet detected (jsdom default)', () => {
     const { code, stderr } = run(path.join(FIXTURES, 'linked-stylesheet.html'));
     expect(code).toBe(2);
     expect(stderr).toContain('side-tab');

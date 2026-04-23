@@ -1,3 +1,4 @@
+// @runtime=bun
 import { describe, expect, test } from 'bun:test';
 import path from 'path';
 import {

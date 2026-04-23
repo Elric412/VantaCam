@@ -85,6 +85,8 @@ tasks.named("preBuild").configure {
 }
 
 dependencies {
+    implementation(libs.androidx.navigation.compose)
+    implementation(libs.accompanist.permissions)
     implementation(project(":feature:camera"))
     implementation(project(":feature:gallery"))
     implementation(project(":feature:settings"))

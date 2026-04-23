@@ -24,7 +24,7 @@ class NativeImagingRuntimeFacade(
         return orchestrator.start(config)
     }
 
-    fun submitPreviewFrame(frameId: Long, hardwareBufferHandle: Long, width: Int, height: Int): LeicaResult<Unit> {
+    fun submitPreviewFrame(frameId: Long, hardwareBufferHandle: Long, width: Int, height: Int, exposureTimeNs: Long = 0L, iso: Int = 0): LeicaResult<Unit> {
         val frame = FrameHandle(
             frameId = frameId,
             hardwareBufferHandle = hardwareBufferHandle,
@@ -34,8 +34,8 @@ class NativeImagingRuntimeFacade(
         )
         val metadata = CaptureMetadata(
             timestampNs = System.nanoTime(),
-            exposureTimeNs = 0L,
-            iso = 0,
+            exposureTimeNs = exposureTimeNs,
+            iso = iso,
             focusDistanceDiopters = 0f,
             sensorGain = 1f,
             thermalLevel = 0,

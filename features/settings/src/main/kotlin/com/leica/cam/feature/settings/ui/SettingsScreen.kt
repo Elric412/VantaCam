@@ -28,17 +28,23 @@ fun SettingsScreen(
             .fillMaxSize()
             .background(LeicaBlack),
     ) {
-        LazyColumn(modifier = Modifier.fillMaxSize()) {
-            item {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            horizontalAlignment = androidx.compose.ui.Alignment.Start
+        ) {
+            item(key = "header") {
                 Text(
                     text = "SETTINGS",
                     style = MaterialTheme.typography.displayLarge,
                     color = LeicaWhite,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 20.dp),
+                    modifier = Modifier.padding(com.leica.cam.ui_components.theme.LeicaTokens.spacing.l).animateItemPlacement(),
                 )
             }
             items(sections, key = { section -> section.id }) { section ->
-                SettingsSectionView(section = section)
+                // Assuming SettingsSectionView has modifier parameter, or we can wrap it
+                Box(modifier = Modifier.animateItemPlacement()) {
+                    SettingsSectionView(section = section)
+                }
             }
         }
     }

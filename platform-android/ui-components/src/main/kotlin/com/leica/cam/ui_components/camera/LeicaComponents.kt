@@ -34,6 +34,7 @@ fun LeicaShutterButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val haptic = com.leica.cam.ui_components.motion.LeicaHaptics.rememberShutterHaptic()
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val innerCircleScale by animateFloatAsState(
@@ -52,7 +53,7 @@ fun LeicaShutterButton(
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
-                onClick = onClick
+                onClick = { haptic(); onClick() }
             ),
         contentAlignment = Alignment.Center
     ) {
@@ -155,27 +156,51 @@ fun LeicaControlDial(
     label: String,
     value: String,
     onValueChange: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
+    val tokens = com.leica.cam.ui_components.theme.LeicaTokens.colors
+    val spacing = com.leica.cam.ui_components.theme.LeicaTokens.spacing
+
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val scale by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (pressed) 0.96f else 1.0f,
+        label = "dialScale",
+    )
+
     Column(
         modifier = modifier
-            .padding(8.dp)
-            .semantics(mergeDescendants = true) {
-                role = Role.Button
-            }
-            .clickable(onClick = onValueChange),
-        horizontalAlignment = Alignment.CenterHorizontally
+            .padding(spacing.s)
+            .semantics(mergeDescendants = true) { role = Role.Button }
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onValueChange,
+            ),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Text(
             text = label.uppercase(),
             style = MaterialTheme.typography.labelSmall,
-            color = Color.Gray
+            color = tokens.onSurfaceMuted,
         )
-        Text(
-            text = value,
-            style = MaterialTheme.typography.bodyLarge,
-            color = LeicaWhite,
-            fontWeight = FontWeight.Bold
-        )
+        androidx.compose.animation.AnimatedContent(
+            targetState = value,
+            transitionSpec = {
+                androidx.compose.animation.fadeIn() androidx.compose.animation.togetherWith androidx.compose.animation.fadeOut()
+            },
+            label = "dialValue",
+        ) { v ->
+            Text(
+                text = v,
+                style = MaterialTheme.typography.titleMedium,
+                color = tokens.onBackground,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.graphicsLayerScale(scale),
+            )
+        }
     }
 }
+
+private fun Modifier.graphicsLayerScale(s: Float): Modifier =
+    this.then(androidx.compose.ui.graphics.graphicsLayer { scaleX = s; scaleY = s })

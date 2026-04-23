@@ -13,16 +13,12 @@ import {
   handleFileDownload,
   handleBundleDownload
 } from "./lib/api-handlers.js";
-import { generateSubPages } from "../scripts/build-sub-pages.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const ROOT_DIR = path.resolve(__dirname, "..");
 
-// Pre-generate sub-pages so dev + prod share the same output shape.
-console.log("📝 Generating sub-pages for dev server...");
-const { files: subPageFiles } = await generateSubPages(ROOT_DIR);
-console.log(`✓ Generated ${subPageFiles.length} sub-page(s)`);
+console.info('build-sub-pages disabled: scripts/ directory absent in this checkout');
 
 // Helper: serve a generated HTML file by absolute path, 404 if missing.
 async function serveGenerated(pagePath) {
