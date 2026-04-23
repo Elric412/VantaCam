@@ -30,4 +30,31 @@ object SensorHalModule {
     @Provides
     @Singleton
     fun provideHybridAutoFocusEngine(): HybridAutoFocusEngine = HybridAutoFocusEngine()
+
+    @Provides
+    @Singleton
+    fun provideCameraSelector(): com.leica.cam.sensor_hal.session.CameraSelector =
+        com.leica.cam.sensor_hal.session.DefaultCameraSelector()
+
+    @Provides
+    @Singleton
+    fun provideCamera2CameraController(
+        @dagger.hilt.android.qualifiers.ApplicationContext appContext: android.content.Context,
+    ): com.leica.cam.sensor_hal.session.Camera2CameraController =
+        com.leica.cam.sensor_hal.session.Camera2CameraController(appContext)
+
+    @Provides
+    @Singleton
+    fun provideCameraController(
+        impl: com.leica.cam.sensor_hal.session.Camera2CameraController,
+    ): com.leica.cam.sensor_hal.session.CameraController = impl
+
+    @Provides
+    @Singleton
+    fun provideCameraSessionManager(
+        stateMachine: com.leica.cam.sensor_hal.session.CameraSessionStateMachine,
+        controller: com.leica.cam.sensor_hal.session.CameraController,
+        selector: com.leica.cam.sensor_hal.session.CameraSelector,
+    ): com.leica.cam.sensor_hal.session.CameraSessionManager =
+        com.leica.cam.sensor_hal.session.CameraSessionManager(stateMachine, controller, selector)
 }

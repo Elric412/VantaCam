@@ -1,87 +1,58 @@
 package com.leica.cam.ui_components.theme
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Shapes
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.staticCompositionLocalOf
 
-// Leica Signature Colors
-val LeicaRed = Color(0xFFE4002B)
-val LeicaBlack = Color(0xFF131313)
-val LeicaWhite = Color(0xFFFFFFFF)
-val LeicaGray = Color(0xFFC6C6C6)
-val LeicaDarkGray = Color(0xFF1F1F1F)
-
-private val DarkColorScheme = darkColorScheme(
-    primary = LeicaWhite,
-    secondary = LeicaRed,
-    tertiary = LeicaGray,
-    background = LeicaBlack,
-    surface = LeicaDarkGray,
-    onPrimary = LeicaBlack,
-    onSecondary = LeicaWhite,
-    onBackground = LeicaWhite,
-    onSurface = LeicaWhite
+private val LeicaDarkColorScheme = darkColorScheme(
+    primary = LeicaPalette.Red,
+    onPrimary = LeicaPalette.White,
+    secondary = LeicaPalette.Content1,
+    onSecondary = LeicaPalette.Black,
+    background = LeicaPalette.Surface1,
+    onBackground = LeicaPalette.Content0,
+    surface = LeicaPalette.Surface2,
+    onSurface = LeicaPalette.Content0,
+    surfaceVariant = LeicaPalette.Surface3,
+    onSurfaceVariant = LeicaPalette.Content2,
+    error = LeicaPalette.Error,
+    onError = LeicaPalette.White,
 )
 
-private val LightColorScheme = lightColorScheme(
-    primary = LeicaBlack,
-    secondary = LeicaRed,
-    tertiary = Color.Gray,
-    background = LeicaWhite,
-    surface = Color(0xFFF5F5F5),
-    onPrimary = LeicaWhite,
-    onSecondary = LeicaWhite,
-    onBackground = LeicaBlack,
-    onSurface = LeicaBlack
-)
+val LocalLeicaColors = staticCompositionLocalOf { LeicaColorScheme() }
 
-val LeicaTypography = Typography(
-    displayLarge = TextStyle(
-        fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.Bold,
-        fontSize = 32.sp
-    ),
-    labelMedium = TextStyle(
-        fontFamily = FontFamily.Monospace,
-        fontWeight = FontWeight.Medium,
-        fontSize = 12.sp,
-        letterSpacing = 0.5.sp
-    ),
-    bodyLarge = TextStyle(
-        fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.Normal,
-        fontSize = 16.sp
-    )
-)
-
-val LeicaShapes = Shapes(
-    small = RoundedCornerShape(0.dp),
-    medium = RoundedCornerShape(0.dp),
-    large = RoundedCornerShape(0.dp)
-)
-
+/**
+ * The single entry point for the Leica design system. Always dark — the
+ * app is a camera HUD. Exposes tokens via CompositionLocals so screens can
+ * read spacing/motion/elevation via [LeicaTokens] without re-plumbing.
+ */
 @Composable
-fun LeicaTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
-    content: @Composable () -> Unit
-) {
-    val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
+fun LeicaTheme(content: @Composable () -> Unit) {
+    CompositionLocalProvider(
+        LocalLeicaColors provides LeicaColorScheme(),
+        LocalLeicaSpacing provides LeicaSpacing(),
+        LocalLeicaMotion provides LeicaMotion(),
+        LocalLeicaElevation provides LeicaElevation(),
+    ) {
+        MaterialTheme(
+            colorScheme = LeicaDarkColorScheme,
+            typography = LeicaTypography,
+            shapes = LeicaShapes,
+            content = content,
+        )
+    }
+}
 
-    MaterialTheme(
-        colorScheme = colorScheme,
-        typography = LeicaTypography,
-        shapes = LeicaShapes,
-        content = content
-    )
+/** Token accessors. Prefer `LeicaTokens.spacing.l` over Material defaults. */
+object LeicaTokens {
+    val colors: LeicaColorScheme
+        @Composable get() = LocalLeicaColors.current
+    val spacing: LeicaSpacing
+        @Composable get() = LocalLeicaSpacing.current
+    val motion: LeicaMotion
+        @Composable get() = LocalLeicaMotion.current
+    val elevation: LeicaElevation
+        @Composable get() = LocalLeicaElevation.current
 }

@@ -1,11 +1,14 @@
 {
-  "name": "vantacam",
+  "name": "leicacam-tools",
   "private": true,
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "test:bun": "bun test",
-    "test:node": "node --test tests/detect-antipatterns-fixtures.test.mjs tests/cleanup-deprecated.test.mjs"
+    "test": "bun test",
+    "test:node": "node --test tests/anti-pattern/**/*.test.js"
+  },
+  "engines": {
+    "bun": ">=1.0.0"
   },
   "dependencies": {
     "jsdom": "^24.1.0"

@@ -1,8 +1,15 @@
 package com.leica.cam
 
 import android.os.Bundle
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideIntoContainer
+import androidx.compose.animation.slideOutOfContainer
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
@@ -25,140 +32,90 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import com.leica.cam.feature.camera.ui.CameraModeSwitcher
+import com.leica.cam.feature.camera.permissions.PermissionGate
 import com.leica.cam.feature.camera.ui.CameraScreen
-import com.leica.cam.feature.camera.ui.CameraUiOrchestrator
+import com.leica.cam.feature.camera.ui.CameraScreenDeps
 import com.leica.cam.feature.gallery.ui.GalleryMetadataEngine
 import com.leica.cam.feature.gallery.ui.GalleryScreen
-import com.leica.cam.feature.settings.preferences.CameraPreferencesRepository
 import com.leica.cam.feature.settings.ui.SettingsScreen
-import com.leica.cam.ui_components.camera.Phase9UiStateCalculator
-import com.leica.cam.ui_components.theme.LeicaBlack
-import com.leica.cam.ui_components.theme.LeicaRed
+import com.leica.cam.ui_components.theme.LeicaPalette
 import com.leica.cam.ui_components.theme.LeicaTheme
+import com.leica.cam.ui_components.theme.LeicaTokens
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
-    @Inject
-    lateinit var orchestrator: CameraUiOrchestrator
-
-    @Inject
-    lateinit var modeSwitcher: CameraModeSwitcher
-
-    @Inject
-    lateinit var uiStateCalculator: Phase9UiStateCalculator
-
-    @Inject
-    lateinit var galleryEngine: GalleryMetadataEngine
-
-    @Inject
-    lateinit var preferencesRepository: CameraPreferencesRepository
+    @Inject lateinit var cameraDeps: CameraScreenDeps
+    @Inject lateinit var galleryEngine: GalleryMetadataEngine
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         setContent {
             LeicaTheme {
                 val navController = rememberNavController()
-                val navBackStackEntry by navController.currentBackStackEntryAsState()
-                val currentDestination = navBackStackEntry?.destination
+                val backStack by navController.currentBackStackEntryAsState()
+                val currentDestination = backStack?.destination
 
                 Scaffold(
-                    bottomBar = { leicaBottomNavigation(navController, currentDestination) },
+                    bottomBar = { BottomBar(navController, currentDestination) },
+                    containerColor = LeicaTokens.colors.background,
                 ) { innerPadding ->
-                    leicaNavHost(navController, Modifier.padding(innerPadding))
+                    NavGraph(navController, Modifier.padding(innerPadding))
                 }
             }
         }
     }
 
     @Composable
-    private fun leicaBottomNavigation(
-        navController: NavHostController,
-        currentDestination: NavDestination?,
-    ) {
-        NavigationBar(
-            containerColor = LeicaBlack,
-            contentColor = Color.White,
-        ) {
-            NavigationBarItem(
-                icon = { Icon(Icons.Default.Home, contentDescription = "Camera") },
-                label = { Text("CAMERA") },
-                selected = currentDestination?.hierarchy?.any { it.route == "camera" } == true,
-                onClick = {
-                    navController.navigate("camera") {
-                        popUpTo("camera") { inclusive = false }
-                        launchSingleTop = true
-                    }
-                },
-                colors =
-                    NavigationBarItemDefaults.colors(
-                        selectedIconColor = LeicaRed,
-                        selectedTextColor = LeicaRed,
+    private fun BottomBar(navController: NavHostController, currentDestination: NavDestination?) {
+        NavigationBar(containerColor = LeicaPalette.Surface0, contentColor = Color.White) {
+            listOf(
+                Triple("camera", "CAMERA", Icons.Default.Home),
+                Triple("gallery", "GALLERY", Icons.Default.List),
+                Triple("settings", "SETTINGS", Icons.Default.Settings),
+            ).forEach { (route, label, icon) ->
+                NavigationBarItem(
+                    icon = { Icon(icon, contentDescription = label) },
+                    label = { Text(label) },
+                    selected = currentDestination?.hierarchy?.any { it.route == route } == true,
+                    onClick = {
+                        navController.navigate(route) {
+                            popUpTo(navController.graph.startDestinationId) { saveState = true }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    },
+                    colors = NavigationBarItemDefaults.colors(
+                        selectedIconColor = LeicaPalette.Red,
+                        selectedTextColor = LeicaPalette.Red,
                         unselectedIconColor = Color.Gray,
                         unselectedTextColor = Color.Gray,
                         indicatorColor = Color.Transparent,
                     ),
-            )
-            NavigationBarItem(
-                icon = { Icon(Icons.Default.List, contentDescription = "Gallery") },
-                label = { Text("GALLERY") },
-                selected = currentDestination?.hierarchy?.any { it.route == "gallery" } == true,
-                onClick = {
-                    navController.navigate("gallery") {
-                        launchSingleTop = true
-                    }
-                },
-                colors =
-                    NavigationBarItemDefaults.colors(
-                        selectedIconColor = LeicaRed,
-                        selectedTextColor = LeicaRed,
-                        unselectedIconColor = Color.Gray,
-                        unselectedTextColor = Color.Gray,
-                        indicatorColor = Color.Transparent,
-                    ),
-            )
-            NavigationBarItem(
-                icon = { Icon(Icons.Default.Settings, contentDescription = "Settings") },
-                label = { Text("SETTINGS") },
-                selected = currentDestination?.hierarchy?.any { it.route == "settings" } == true,
-                onClick = {
-                    navController.navigate("settings") {
-                        launchSingleTop = true
-                    }
-                },
-                colors =
-                    NavigationBarItemDefaults.colors(
-                        selectedIconColor = LeicaRed,
-                        selectedTextColor = LeicaRed,
-                        unselectedIconColor = Color.Gray,
-                        unselectedTextColor = Color.Gray,
-                        indicatorColor = Color.Transparent,
-                    ),
-            )
+                )
+            }
         }
     }
 
     @Composable
-    private fun leicaNavHost(
-        navController: NavHostController,
-        modifier: Modifier,
-    ) {
+    private fun NavGraph(navController: NavHostController, modifier: Modifier) {
+        val motion = LeicaTokens.motion
         NavHost(
             navController = navController,
             startDestination = "camera",
             modifier = modifier,
+            enterTransition = { slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Start, tween(motion.standard, easing = motion.enter)) + fadeIn(tween(motion.standard)) },
+            exitTransition = { slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.Start, tween(motion.standard, easing = motion.exit)) + fadeOut(tween(motion.fast)) },
+            popEnterTransition = { slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.End, tween(motion.standard, easing = motion.enter)) + fadeIn(tween(motion.standard)) },
+            popExitTransition = { slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.End, tween(motion.standard, easing = motion.exit)) + fadeOut(tween(motion.fast)) },
         ) {
             composable("camera") {
-                CameraScreen(orchestrator, uiStateCalculator, modeSwitcher, preferencesRepository)
+                PermissionGate { CameraScreen(cameraDeps) }
             }
-            composable("gallery") {
-                GalleryScreen(galleryEngine)
-            }
-            composable("settings") {
-                SettingsScreen()
-            }
+            composable("gallery") { GalleryScreen(galleryEngine) }
+            composable("settings") { SettingsScreen() }
         }
     }
 }

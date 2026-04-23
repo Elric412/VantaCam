@@ -39,4 +39,18 @@ object FeatureCameraModule {
         uiStateCalculator: Phase9UiStateCalculator,
         modeSwitcher: CameraModeSwitcher,
     ): CameraUiOrchestrator = CameraUiOrchestrator(uiStateCalculator, modeSwitcher)
+
+    @Provides
+    @Singleton
+    fun provideCameraScreenDeps(
+        orchestrator: CameraUiOrchestrator,
+        uiStateCalculator: Phase9UiStateCalculator,
+        modeSwitcher: CameraModeSwitcher,
+        preferences: com.leica.cam.feature.settings.preferences.CameraPreferencesRepository,
+        cameraController: com.leica.cam.sensor_hal.session.Camera2CameraController,
+        sessionManager: com.leica.cam.sensor_hal.session.CameraSessionManager,
+    ): com.leica.cam.feature.camera.ui.CameraScreenDeps =
+        com.leica.cam.feature.camera.ui.CameraScreenDeps(
+            orchestrator, uiStateCalculator, modeSwitcher, preferences, cameraController, sessionManager,
+        )
 }

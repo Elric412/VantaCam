@@ -42,8 +42,10 @@ class LeicaCamApp : Application() {
         // Sequential warm-up with GC hints between each to prevent OOM.
         // Only AwbModelRunner and FaceLandmarkerRunner are warmed eagerly;
         // MicroIspRunner and SemanticSegmenterRunner are deferred until first shutter press.
-        appScope.launch {
+        appScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
+                // Yield briefly so the first frame reaches the GPU before we contend for memory.
+                kotlinx.coroutines.delay(250)
                 val warmedCount = modelRegistry.warmUpAll(assetBytesLoader)
                 Log.i(TAG, "Model warm-up complete: $warmedCount models ready")
             } catch (e: Throwable) {

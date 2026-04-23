@@ -1,3 +1,4 @@
+// @runtime=bun
 /**
  * End-to-end tests for `impeccable skills` subcommands.
  *
