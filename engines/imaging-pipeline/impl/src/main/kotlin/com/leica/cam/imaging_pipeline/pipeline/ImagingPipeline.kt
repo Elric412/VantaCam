@@ -182,31 +182,6 @@ enum class HdrMergeMode {
     MERTENS_FUSION,
 }
 
-/**
- * Semantic zone classifications for priority-weighted tone mapping.
- * Each pixel is assigned the closest matching zone by the segmentation engine.
- */
-enum class SemanticZone(val tonePriority: Float) {
-    FACE(1.00f),
-    PERSON(0.85f),
-    SUBJECT(0.70f),
-    MIDGROUND(0.50f),
-    BACKGROUND(0.30f),
-    SKY(0.15f),
-    UNKNOWN(0.40f),
-}
-
-/**
- * Per-pixel semantic zone map — optional input to the tone mapping stage.
- * When null, uniform global tone mapping is applied.
- */
-data class SemanticMask(
-    val width: Int,
-    val height: Int,
-    /** Zone assignment per pixel, row-major. */
-    val zones: Array<SemanticZone>,
-)
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Stage 1: Multi-scale Hierarchical Frame Alignment
 // ─────────────────────────────────────────────────────────────────────────────

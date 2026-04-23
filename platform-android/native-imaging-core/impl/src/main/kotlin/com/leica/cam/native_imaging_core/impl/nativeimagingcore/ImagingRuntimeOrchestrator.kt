@@ -18,9 +18,10 @@ import java.util.concurrent.atomic.AtomicInteger
  * Uses bounded channels to enforce backpressure and preserve zero-jank behavior.
  */
 class ImagingRuntimeOrchestrator(
+
     private val bridge: NativeImagingBridge,
     private val callbackDispatcher: CoroutineDispatcher = Dispatchers.Default,
-) {
+) : INativeImagingOrchestrator {
     private val ingestQueue = Channel<FrameTask>(capacity = 8, onBufferOverflow = BufferOverflow.DROP_OLDEST)
     private val processingQueue = Channel<ProcessingRequest>(capacity = 8, onBufferOverflow = BufferOverflow.DROP_OLDEST)
     private val runtimeScope = CoroutineScope(SupervisorJob() + callbackDispatcher)
@@ -29,7 +30,7 @@ class ImagingRuntimeOrchestrator(
     private val highThermalFrameModulo = AtomicInteger(0)
     private val nonCriticalWarmupTriggered = AtomicBoolean(false)
 
-    fun start(config: NativeSessionConfig): LeicaResult<Unit> {
+    override fun start(config: NativeSessionConfig): LeicaResult<Unit> {
         val created = bridge.createSession(config)
         if (created is LeicaResult.Failure) return created
         bridge.warmSession()
@@ -39,31 +40,31 @@ class ImagingRuntimeOrchestrator(
         return LeicaResult.Success(Unit)
     }
 
-    fun submitFrame(frame: FrameHandle, metadata: CaptureMetadata): LeicaResult<Unit> {
+    override fun submitFrame(frame: FrameHandle, metadata: CaptureMetadata): LeicaResult<Unit> {
         latestThermalLevel.set(metadata.thermalLevel)
         val result = ingestQueue.trySend(FrameTask(frame, metadata))
         val enqueued = result.isSuccess
         return if (enqueued) LeicaResult.Success(Unit) else LeicaResult.Failure.Pipeline(PipelineStage.SMART_IMAGING, "Ingest queue saturated")
     }
 
-    fun configureAdvancedHdr(config: AdvancedHdrConfig): LeicaResult<Unit> = bridge.configureAdvancedHdr(config)
+    override fun configureAdvancedHdr(config: AdvancedHdrConfig): LeicaResult<Unit> = bridge.configureAdvancedHdr(config)
 
-    fun configureHyperToneWb(config: HyperToneWbConfig): LeicaResult<Unit> = bridge.configureHyperToneWb(config)
+    override fun configureHyperToneWb(config: HyperToneWbConfig): LeicaResult<Unit> = bridge.configureHyperToneWb(config)
 
-    fun registerLut(descriptor: LutDescriptor): LeicaResult<Unit> = bridge.registerLut(descriptor)
+    override fun registerLut(descriptor: LutDescriptor): LeicaResult<Unit> = bridge.registerLut(descriptor)
 
-    fun activateLut(lutId: String): LeicaResult<Unit> = bridge.setActiveLut(lutId)
+    override fun activateLut(lutId: String): LeicaResult<Unit> = bridge.setActiveLut(lutId)
 
-    fun configureGpuBackend(backend: NativeGpuBackend): LeicaResult<Unit> = bridge.setGpuBackend(backend)
+    override fun configureGpuBackend(backend: NativeGpuBackend): LeicaResult<Unit> = bridge.setGpuBackend(backend)
 
-    fun requestProcessing(request: ProcessingRequest): LeicaResult<Unit> {
+    override fun requestProcessing(request: ProcessingRequest): LeicaResult<Unit> {
         val throttledRequest = thermalAwareRequest(request) ?: return LeicaResult.Success(Unit)
         val result = processingQueue.trySend(throttledRequest)
         val enqueued = result.isSuccess
         return if (enqueued) LeicaResult.Success(Unit) else LeicaResult.Failure.Pipeline(PipelineStage.SMART_IMAGING, "Processing queue saturated")
     }
 
-    fun shutdown(): LeicaResult<Unit> {
+    override fun shutdown(): LeicaResult<Unit> {
         workerJob?.cancel()
         bridge.beginDrain()
         return bridge.closeSession()

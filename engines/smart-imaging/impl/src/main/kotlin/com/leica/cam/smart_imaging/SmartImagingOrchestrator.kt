@@ -110,7 +110,26 @@ class SmartImagingOrchestrator @Inject constructor(
 
         val toned = toneEngine.render(wb, bokeh, parallel.scene, plan.toneConfig).getOrElse { return@withContext it }
         val enhanced = neuralIsp.enhance(toned, budget).getOrElse { return@withContext it }
-        assembler.assemble(enhanced, plan.outputMode, IPhotonMatrixAssembler.OutputMetadata())
+        when (val assembled = assembler.assemble(enhanced, plan.outputMode, IPhotonMatrixAssembler.OutputMetadata())) {
+            is LeicaResult.Success -> {
+                LeicaResult.Success(
+                    LumoOutputPackage.Complete(
+                        finalBuffer = assembled.value.finalBuffer,
+                        bokehMask = (bokeh as? com.leica.cam.bokeh_engine.api.BokehResult.Rendered)?.bokehMask,
+                        captureMetadata = LumoOutputPackage.CaptureMetadata(
+                            iso = assembled.value.metadata.iso,
+                            exposureTimeNs = assembled.value.metadata.exposureTimeNs,
+                            focalLengthMm = assembled.value.metadata.focalLengthMm,
+                            whiteBalanceKelvin = assembled.value.metadata.whiteBalanceKelvin,
+                            timestampNs = assembled.value.metadata.timestampNs,
+                        ),
+                        outputMode = assembled.value.outputMode,
+                        toneProfile = assembled.value.toneProfile,
+                    ),
+                )
+            }
+            is LeicaResult.Failure -> assembled
+        }
     }
 }
 

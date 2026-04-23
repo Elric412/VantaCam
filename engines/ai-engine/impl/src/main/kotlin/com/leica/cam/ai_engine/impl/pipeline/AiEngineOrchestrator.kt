@@ -14,8 +14,8 @@ import javax.inject.Singleton
 
 @Singleton
 class AiEngineOrchestrator @Inject constructor(
-    private val sceneClassifier: SceneClassifier,
-    private val qualityEngine: ShotQualityEngine,
+    private val sceneClassifier: InternalSceneClassifier,
+    private val qualityEngine: InternalShotQualityEngine,
     private val objectTracker: ObjectTrackingEngine,
 ) : IAiEngine {
 
@@ -40,7 +40,7 @@ class AiEngineOrchestrator @Inject constructor(
 }
 
 @Singleton
-class SceneClassifier @Inject constructor() {
+class InternalSceneClassifier @Inject constructor() {
     fun classify(fused: FusedPhotonBuffer, mode: CaptureMode): SceneLabel {
         return SceneLabel.LANDSCAPE
     }
@@ -59,7 +59,7 @@ class SceneClassifier @Inject constructor() {
 }
 
 @Singleton
-class ShotQualityEngine @Inject constructor() {
+class InternalShotQualityEngine @Inject constructor() {
     fun score(fused: FusedPhotonBuffer): QualityScore {
         return QualityScore(overall = 0.88f, sharpness = 0.85f, exposure = 0.9f, stability = 0.92f)
     }

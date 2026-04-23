@@ -8,20 +8,19 @@ class PhotonMatrixAssembler : IPhotonMatrixAssembler {
         enhanced: PhotonBuffer,
         outputMode: ProXdrOutputMode,
         metadata: IPhotonMatrixAssembler.OutputMetadata,
-    ): LeicaResult<com.leica.cam.smart_imaging.LumoOutputPackage> {
+    ): LeicaResult<PhotonAssemblyOutput> {
         return LeicaResult.Success(
-            com.leica.cam.smart_imaging.LumoOutputPackage.Complete(
+            PhotonAssemblyOutput(
                 finalBuffer = enhanced,
-                bokehMask = null,
-                captureMetadata = com.leica.cam.smart_imaging.LumoOutputPackage.CaptureMetadata(
+                outputMode = outputMode,
+                toneProfile = "leica_authentic",
+                metadata = PhotonAssemblyOutput.CaptureMetadata(
                     iso = DEFAULT_ISO,
                     exposureTimeNs = DEFAULT_EXPOSURE_TIME_NS,
                     focalLengthMm = 50f,
                     whiteBalanceKelvin = 6500f,
                     timestampNs = System.nanoTime(),
                 ),
-                outputMode = outputMode,
-                toneProfile = "leica_authentic",
             ),
         )
     }

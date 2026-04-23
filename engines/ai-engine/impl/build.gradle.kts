@@ -10,6 +10,7 @@ android {
 }
 
 dependencies {
+    implementation(project(":imaging-pipeline:api"))
     implementation(project(":ai-engine:api"))
     implementation(project(":depth-engine:api"))
     implementation(project(":face-engine:api"))
