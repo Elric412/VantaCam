@@ -22,11 +22,12 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.leica.cam.feature.camera.controls.CaptureControlsViewModel
 import com.leica.cam.feature.camera.preview.CameraPreview
@@ -49,6 +50,7 @@ import com.leica.cam.ui_components.camera.ViewfinderGridStyle
 import com.leica.cam.ui_components.camera.ViewfinderOverlay
 import com.leica.cam.ui_components.theme.LeicaTokens
 import javax.inject.Inject
+import kotlinx.coroutines.launch
 
 /**
  * Bundled dependency bag so MainActivity doesn't leak 6 parameters into every
@@ -71,6 +73,7 @@ fun CameraScreen(
 ) {
     val tokens = LeicaTokens.colors
     val spacing = LeicaTokens.spacing
+    val coroutineScope = rememberCoroutineScope()
 
     val preferences by deps.preferences.state.collectAsState()
     val captureState by controlsVm.state.collectAsState()
@@ -111,14 +114,16 @@ fun CameraScreen(
         CameraPreview(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(bottom = 220.dp_),
+                .padding(bottom = 220.dp),
             controller = deps.cameraController,
             sessionManager = deps.sessionManager,
         )
 
         ViewfinderOverlay(
             state = overlayState,
-            modifier = Modifier.fillMaxSize().padding(bottom = 220.dp_),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(bottom = 220.dp),
         )
 
         // Top HUD
@@ -187,8 +192,7 @@ fun CameraScreen(
 
             LeicaShutterButton(onClick = {
                 deps.orchestrator.handleGesture(CameraGesture.Tap(0.5f, 0.5f), 1.0f)
-                // Fire capture on the bound Camera2CameraController via sessionManager.
-                kotlinx.coroutines.MainScope().launch {
+                coroutineScope.launch {
                     runCatching { deps.sessionManager.capture() }
                 }
             })
@@ -242,8 +246,3 @@ private fun formatShutterUs(us: Long): String = when {
     us >= 1_000_000L -> "%.1fs".format(us / 1_000_000.0)
     else -> "1/${(1_000_000.0 / us).toInt().coerceAtLeast(1)}"
 }
-
-private val Int.dp_: androidx.compose.ui.unit.Dp get() = androidx.compose.ui.unit.Dp(this.toFloat())
-
-// Needed for the MainScope().launch call above without importing the symbol at top
-private val kotlinx.coroutines.MainScope.launchShim: Unit get() = Unit

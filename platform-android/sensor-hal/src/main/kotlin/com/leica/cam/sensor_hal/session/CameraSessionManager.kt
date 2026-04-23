@@ -7,7 +7,8 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 /**
- * Lifecycle orchestrator for opening, configuring, and closing camera sessions with retry.
+ * Lifecycle orchestrator for opening, configuring, capturing, and closing the
+ * active camera session with retry and idempotent lifecycle guards.
  */
 class CameraSessionManager(
     private val stateMachine: CameraSessionStateMachine,
@@ -19,6 +20,11 @@ class CameraSessionManager(
 
     suspend fun openSession() {
         mutex.withLock {
+            if (stateMachine.currentState() != CameraSessionState.CLOSED) {
+                Logger.d(TAG, "openSession ignored because state=${stateMachine.currentState()}")
+                return
+            }
+
             stateMachine.transition(CameraSessionEvent.OPEN_REQUESTED)
             retryWithBackoff("openSession") {
                 val selectedCameraId = cameraSelector.selectCameraId(cameraController.availableCameraIds())
@@ -32,16 +38,34 @@ class CameraSessionManager(
 
     suspend fun capture() {
         mutex.withLock {
+            if (stateMachine.currentState() != CameraSessionState.IDLE) {
+                Logger.d(TAG, "capture ignored because state=${stateMachine.currentState()}")
+                return
+            }
+
             stateMachine.transition(CameraSessionEvent.CAPTURE_REQUESTED)
-            cameraController.capture()
             stateMachine.transition(CameraSessionEvent.CAPTURE_STARTED)
-            stateMachine.transition(CameraSessionEvent.PROCESSING_COMPLETED)
+            runCatching { cameraController.capture() }
+                .onSuccess {
+                    stateMachine.transition(CameraSessionEvent.PROCESSING_COMPLETED)
+                }
+                .onFailure {
+                    stateMachine.transition(CameraSessionEvent.ERROR)
+                    throw it
+                }
         }
     }
 
     suspend fun closeSession() {
         mutex.withLock {
-            stateMachine.transition(CameraSessionEvent.CLOSE_REQUESTED)
+            val currentState = stateMachine.currentState()
+            if (currentState == CameraSessionState.CLOSED) {
+                return
+            }
+
+            if (currentState != CameraSessionState.CLOSING) {
+                stateMachine.transition(CameraSessionEvent.CLOSE_REQUESTED)
+            }
             cameraController.closeCamera()
             stateMachine.transition(CameraSessionEvent.CLOSED)
         }

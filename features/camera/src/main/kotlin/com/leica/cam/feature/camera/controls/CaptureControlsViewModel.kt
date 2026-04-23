@@ -1,7 +1,6 @@
 package com.leica.cam.feature.camera.controls
 
 import androidx.lifecycle.ViewModel
-import com.leica.cam.feature.camera.ui.ProCaptureRequest
 import com.leica.cam.feature.camera.ui.ProModeController
 import com.leica.cam.sensor_hal.session.Camera2CameraController
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -56,26 +55,27 @@ class CaptureControlsViewModel @Inject constructor(
     val wbOptions: List<Int> = listOf(2500, 3000, 3500, 4000, 4500, 5000, 5500, 6000, 6500, 7500, 9000)
 
     fun setIso(iso: Int) {
-        val clamped = proModeController.buildManualRequest(
+        val request = proModeController.buildManualRequest(
             iso = iso,
             shutterUs = _state.value.shutterUs,
             whiteBalanceKelvin = _state.value.whiteBalanceKelvin,
             focusDistanceNorm = 0.5f,
             exposureCompensationEv = _state.value.exposureEv,
-        ).iso
-        controller.setIso(clamped)
-        _state.update { it.copy(iso = clamped, isAuto = false) }
+        )
+        controller.setManualExposure(request.iso, request.shutterUs)
+        _state.update { it.copy(iso = request.iso, shutterUs = request.shutterUs, isAuto = false) }
     }
 
     fun setShutter(us: Long) {
-        val clamped = proModeController.buildManualRequest(
-            iso = _state.value.iso, shutterUs = us,
+        val request = proModeController.buildManualRequest(
+            iso = _state.value.iso,
+            shutterUs = us,
             whiteBalanceKelvin = _state.value.whiteBalanceKelvin,
             focusDistanceNorm = 0.5f,
             exposureCompensationEv = _state.value.exposureEv,
-        ).shutterUs
-        controller.setShutterMicros(clamped)
-        _state.update { it.copy(shutterUs = clamped, isAuto = false) }
+        )
+        controller.setManualExposure(request.iso, request.shutterUs)
+        _state.update { it.copy(iso = request.iso, shutterUs = request.shutterUs, isAuto = false) }
     }
 
     fun setExposureEv(ev: Float) {
@@ -91,6 +91,7 @@ class CaptureControlsViewModel @Inject constructor(
     }
 
     fun resetToAuto() {
+        controller.resetToAuto()
         _state.update { CaptureControlsUiState() }
     }
 }

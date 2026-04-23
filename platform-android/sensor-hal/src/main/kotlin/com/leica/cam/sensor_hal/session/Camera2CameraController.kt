@@ -1,26 +1,38 @@
 package com.leica.cam.sensor_hal.session
 
+import android.content.ContentValues
 import android.content.Context
+import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
-import androidx.camera.core.CameraSelector as CxSelector
+import android.hardware.camera2.CaptureRequest
+import android.hardware.camera2.params.RggbChannelVector
+import android.os.Build
+import android.provider.MediaStore
+import android.util.Range
+import androidx.camera.camera2.interop.Camera2CameraControl
+import androidx.camera.camera2.interop.Camera2CameraInfo
+import androidx.camera.camera2.interop.CaptureRequestOptions
+import androidx.camera.core.Camera
+import androidx.camera.core.CameraSelector as CameraXSelector
 import androidx.camera.core.ImageCapture
+import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.lifecycle.LifecycleOwner
 import com.leica.cam.common.Logger
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
-import java.util.concurrent.Executor
-import java.util.concurrent.Executors
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 /**
- * Concrete [CameraController] backed by CameraX (which uses Camera2 under the
- * hood). Exposes a [PreviewView] that the UI layer renders as the viewfinder.
+ * Concrete [CameraController] backed by CameraX + Camera2 interop.
  *
- * Lifecycle contract:
- *  - Caller must provide the current [LifecycleOwner] via [bindLifecycle]
- *    BEFORE calling [openCamera]. We do not capture the owner to avoid leaks.
+ * Preview/session ownership stays with CameraX, while manual ISO/shutter/WB are
+ * applied as Camera2 request overrides so the on-screen controls affect the real
+ * repeating request and still render through [PreviewView].
  */
 class Camera2CameraController(
     private val appContext: Context,
@@ -29,16 +41,32 @@ class Camera2CameraController(
     private val cameraManager: CameraManager =
         appContext.getSystemService(Context.CAMERA_SERVICE) as CameraManager
 
-    private val mainExecutor: Executor = appContext.mainExecutor
-    private val bgExecutor: Executor = Executors.newSingleThreadExecutor()
+    private val mainExecutor = appContext.mainExecutor
+    private val captureExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
 
-    @Volatile var previewView: PreviewView? = null
+    @Volatile
+    var previewView: PreviewView? = null
         private set
 
-    @Volatile private var lifecycleOwner: LifecycleOwner? = null
-    @Volatile private var imageCapture: ImageCapture? = null
-    @Volatile private var cameraProvider: ProcessCameraProvider? = null
+    @Volatile
+    private var lifecycleOwner: LifecycleOwner? = null
 
+    @Volatile
+    private var imageCapture: ImageCapture? = null
+
+    @Volatile
+    private var cameraProvider: ProcessCameraProvider? = null
+
+    @Volatile
+    private var boundCamera: Camera? = null
+
+    @Volatile
+    private var runtimeCapabilities: CameraRuntimeCapabilities = CameraRuntimeCapabilities()
+
+    @Volatile
+    private var requestState: CameraRequestControlState = CameraRequestControlState()
+
+    /** Attaches the active [PreviewView] and [LifecycleOwner] before opening the session. */
     fun attach(view: PreviewView, owner: LifecycleOwner) {
         previewView = view
         lifecycleOwner = owner
@@ -51,81 +79,221 @@ class Camera2CameraController(
                 emptyList()
             }
 
-    override suspend fun openCamera(cameraId: String) = withContext(Dispatchers.Main) {
+    override suspend fun openCamera(cameraId: String) = withContext(Dispatchers.Main.immediate) {
         val owner = requireNotNull(lifecycleOwner) {
             "Camera2CameraController.attach() must be called before openCamera()"
         }
         val view = requireNotNull(previewView) { "PreviewView missing" }
-        val provider = ProcessCameraProvider.getInstance(appContext).get()
-        cameraProvider = provider
+        val provider = awaitCameraProvider()
+        val capabilities = loadCapabilities(cameraId)
 
-        val preview = Preview.Builder().build().also {
-            it.setSurfaceProvider(view.surfaceProvider)
-        }
+        val preview = Preview.Builder()
+            .build()
+            .also { it.setSurfaceProvider(view.surfaceProvider) }
+
         val capture = ImageCapture.Builder()
             .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+            .setFlashMode(ImageCapture.FLASH_MODE_OFF)
             .build()
-        imageCapture = capture
-
-        val selector = if (cameraId.toIntOrNull() == 1) {
-            CxSelector.DEFAULT_FRONT_CAMERA
-        } else {
-            CxSelector.DEFAULT_BACK_CAMERA
-        }
 
         provider.unbindAll()
-        provider.bindToLifecycle(owner, selector, preview, capture)
-        Unit
+        val camera = provider.bindToLifecycle(owner, selectorForCameraId(cameraId), preview, capture)
+
+        cameraProvider = provider
+        imageCapture = capture
+        boundCamera = camera
+        runtimeCapabilities = capabilities
+        applyCurrentRequestState()
     }
 
     override suspend fun configureSession(cameraId: String) {
-        // CameraX binds the session during bindToLifecycle in openCamera().
-        // No-op here; kept for state-machine parity.
+        Logger.d(TAG, "Session configured via CameraX bindToLifecycle for cameraId=$cameraId")
     }
 
-    override suspend fun capture() = withContext(Dispatchers.Main) {
-        val cap = imageCapture ?: error("imageCapture not initialised")
-        // Fire-and-forget for now; wiring to the imaging pipeline happens in a
-        // later phase. This DOES exercise the hardware shutter so feedback is real.
-        cap.takePicture(bgExecutor, object : ImageCapture.OnImageCapturedCallback() {
-            override fun onError(exception: androidx.camera.core.ImageCaptureException) {
-                Logger.e(TAG, "Capture failed: ${exception.imageCaptureError}", exception)
-            }
-            override fun onCaptureSuccess(image: androidx.camera.core.ImageProxy) {
-                image.close()
-            }
-        })
-        Unit
+    override suspend fun capture() = withContext(Dispatchers.Main.immediate) {
+        val capture = imageCapture ?: error("imageCapture not initialised")
+        suspendCancellableCoroutine { continuation ->
+            capture.takePicture(
+                buildOutputOptions(),
+                captureExecutor,
+                object : ImageCapture.OnImageSavedCallback {
+                    override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
+                        Logger.i(TAG, "Capture saved: ${outputFileResults.savedUri ?: "pending_media_store_uri"}")
+                        if (continuation.isActive) continuation.resume(Unit)
+                    }
+
+                    override fun onError(exception: ImageCaptureException) {
+                        Logger.e(TAG, "Capture failed: ${exception.imageCaptureError}", exception)
+                        if (continuation.isActive) continuation.resumeWithException(exception)
+                    }
+                },
+            )
+        }
     }
 
-    override suspend fun closeCamera() = withContext(Dispatchers.Main) {
+    override suspend fun closeCamera() = withContext(Dispatchers.Main.immediate) {
         cameraProvider?.unbindAll()
         cameraProvider = null
         imageCapture = null
+        boundCamera = null
+        runtimeCapabilities = CameraRuntimeCapabilities()
         Unit
     }
 
     fun currentImageCapture(): ImageCapture? = imageCapture
 
-    fun setIso(iso: Int) {
-        // CameraX currently exposes ISO only via Camera2Interop / ExposureState.
-        // Wire this in Phase 3.6; for now log the intent so the control is observably alive.
-        Logger.i(TAG, "setIso requested: $iso (pending Camera2Interop wiring)")
+    /** Applies a paired manual ISO + shutter request so AE can be disabled safely. */
+    fun setManualExposure(iso: Int, shutterUs: Long) {
+        requestState = requestState
+            .withIso(runtimeCapabilities.clampIso(iso))
+            .withShutterUs(runtimeCapabilities.clampShutterUs(shutterUs))
+        applyCurrentRequestState()
     }
 
-    fun setShutterMicros(us: Long) {
-        Logger.i(TAG, "setShutter requested: ${us}us (pending Camera2Interop wiring)")
-    }
-
+    /** Applies auto-exposure bias when AE is active. */
     fun setExposureCompensationEv(ev: Float) {
-        Logger.i(TAG, "setExposureCompensation requested: $ev EV")
+        requestState = requestState.withExposureCompensation(ev.coerceIn(-5f, 5f))
+        applyCurrentRequestState()
     }
 
-    fun setWhiteBalanceKelvin(k: Int) {
-        Logger.i(TAG, "setWB requested: ${k}K")
+    /** Applies manual white balance when Camera2 reports AWB-off support. */
+    fun setWhiteBalanceKelvin(kelvin: Int) {
+        if (!runtimeCapabilities.supportsManualWhiteBalance) {
+            Logger.i(TAG, "Manual white balance unsupported on active camera; ignoring ${kelvin}K request")
+            return
+        }
+        requestState = requestState.withWhiteBalance(kelvin.coerceIn(2_000, 12_000))
+        applyCurrentRequestState()
+    }
+
+    /** Restores auto exposure + auto white balance. */
+    fun resetToAuto() {
+        requestState = CameraRequestControlState()
+        applyCurrentRequestState()
+    }
+
+    private fun applyCurrentRequestState() {
+        val camera = boundCamera ?: return
+        val camera2Control = Camera2CameraControl.from(camera.cameraControl)
+        val requestBuilder = CaptureRequestOptions.Builder()
+
+        if (requestState.usesManualExposure) {
+            requestBuilder.setCaptureRequestOption(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_OFF)
+            requestState.manualIso?.let {
+                requestBuilder.setCaptureRequestOption(CaptureRequest.SENSOR_SENSITIVITY, runtimeCapabilities.clampIso(it))
+            }
+            requestState.manualShutterUs?.let {
+                requestBuilder.setCaptureRequestOption(CaptureRequest.SENSOR_EXPOSURE_TIME, runtimeCapabilities.clampShutterUs(it) * NANOS_PER_MICROSECOND)
+            }
+        } else {
+            requestBuilder.setCaptureRequestOption(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
+        }
+
+        if (requestState.usesManualWhiteBalance && runtimeCapabilities.supportsManualWhiteBalance) {
+            val gains = requireNotNull(requestState.whiteBalanceGains())
+            requestBuilder.setCaptureRequestOption(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_OFF)
+            requestBuilder.setCaptureRequestOption(CaptureRequest.COLOR_CORRECTION_MODE, CaptureRequest.COLOR_CORRECTION_MODE_TRANSFORM_MATRIX)
+            requestBuilder.setCaptureRequestOption(
+                CaptureRequest.COLOR_CORRECTION_GAINS,
+                RggbChannelVector(gains.red, gains.greenEven, gains.greenOdd, gains.blue),
+            )
+        } else {
+            requestBuilder.setCaptureRequestOption(CaptureRequest.CONTROL_AWB_MODE, CaptureRequest.CONTROL_AWB_MODE_AUTO)
+        }
+
+        camera2Control.setCaptureRequestOptions(requestBuilder.build())
+
+        if (!requestState.usesManualExposure && runtimeCapabilities.exposureCompensationStepEv > 0f) {
+            val index = requestState.exposureCompensationIndex(
+                stepEv = runtimeCapabilities.exposureCompensationStepEv,
+                supportedRange = runtimeCapabilities.exposureCompensationRange,
+            )
+            camera.cameraControl.setExposureCompensationIndex(index)
+        }
+    }
+
+    private fun buildOutputOptions(): ImageCapture.OutputFileOptions {
+        val timestamp = java.text.SimpleDateFormat("yyyyMMdd_HHmmss_SSS", java.util.Locale.US)
+            .format(java.util.Date())
+        val values = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, "LeicaCam_$timestamp.jpg")
+            put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/LeicaCam")
+            }
+        }
+        return ImageCapture.OutputFileOptions.Builder(
+            appContext.contentResolver,
+            MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+            values,
+        ).build()
+    }
+
+    private suspend fun awaitCameraProvider(): ProcessCameraProvider =
+        suspendCancellableCoroutine { continuation ->
+            val future = ProcessCameraProvider.getInstance(appContext)
+            future.addListener(
+                {
+                    runCatching { future.get() }
+                        .onSuccess { continuation.resume(it) }
+                        .onFailure { continuation.resumeWithException(it) }
+                },
+                mainExecutor,
+            )
+            continuation.invokeOnCancellation { future.cancel(true) }
+        }
+
+    private fun loadCapabilities(cameraId: String): CameraRuntimeCapabilities {
+        val characteristics = cameraManager.getCameraCharacteristics(cameraId)
+        return CameraRuntimeCapabilities(
+            isoRange = characteristics.get(CameraCharacteristics.SENSOR_INFO_SENSITIVITY_RANGE)?.toIntRange(),
+            shutterRangeUs = characteristics.get(CameraCharacteristics.SENSOR_INFO_EXPOSURE_TIME_RANGE)?.toMicrosecondRange(),
+            exposureCompensationRange = characteristics.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_RANGE)?.toIntRange() ?: 0..0,
+            exposureCompensationStepEv = characteristics.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_STEP)?.toFloat() ?: 0f,
+            supportsManualWhiteBalance = characteristics.get(CameraCharacteristics.CONTROL_AWB_AVAILABLE_MODES)
+                ?.contains(CaptureRequest.CONTROL_AWB_MODE_OFF) == true,
+        )
+    }
+
+    private fun selectorForCameraId(cameraId: String): CameraXSelector {
+        val filteredSelector = CameraXSelector.Builder()
+            .addCameraFilter { infos -> infos.filter { Camera2CameraInfo.from(it).cameraId == cameraId } }
+            .build()
+
+        val hasMatch = runCatching {
+            ProcessCameraProvider.getInstance(appContext).get().availableCameraInfos.any {
+                Camera2CameraInfo.from(it).cameraId == cameraId
+            }
+        }.getOrDefault(false)
+        if (hasMatch) return filteredSelector
+
+        val facing = cameraManager.getCameraCharacteristics(cameraId).get(CameraCharacteristics.LENS_FACING)
+        return if (facing == CameraCharacteristics.LENS_FACING_FRONT) {
+            CameraXSelector.DEFAULT_FRONT_CAMERA
+        } else {
+            CameraXSelector.DEFAULT_BACK_CAMERA
+        }
     }
 
     private companion object {
         private const val TAG = "Camera2CameraController"
+        private const val NANOS_PER_MICROSECOND = 1_000L
     }
 }
+
+private data class CameraRuntimeCapabilities(
+    val isoRange: IntRange? = null,
+    val shutterRangeUs: LongRange? = null,
+    val exposureCompensationRange: IntRange = 0..0,
+    val exposureCompensationStepEv: Float = 0f,
+    val supportsManualWhiteBalance: Boolean = false,
+) {
+    fun clampIso(iso: Int): Int = isoRange?.let { iso.coerceIn(it) } ?: iso
+
+    fun clampShutterUs(shutterUs: Long): Long = shutterRangeUs?.let { shutterUs.coerceIn(it) } ?: shutterUs
+}
+
+private fun Range<Int>.toIntRange(): IntRange = lower..upper
+
+private fun Range<Long>.toMicrosecondRange(): LongRange =
+    (lower / 1_000L)..(upper / 1_000L)
