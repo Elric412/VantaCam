@@ -1,5 +1,6 @@
 package com.leica.cam.imaging_pipeline.hdr
 
+import com.leica.cam.common.ThermalState
 import com.leica.cam.common.result.LeicaResult
 import com.leica.cam.common.result.PipelineStage
 import com.leica.cam.imaging_pipeline.api.UserHdrMode
@@ -8,8 +9,6 @@ import com.leica.cam.imaging_pipeline.pipeline.HdrMergeResult
 import com.leica.cam.imaging_pipeline.pipeline.NoiseModel
 import com.leica.cam.imaging_pipeline.pipeline.PipelineFrame
 import kotlin.math.abs
-
-private const val THERMAL_SEVERE_ORDINAL = 4
 
 /**
  * ProXDR -- the rebuilt HDR capture and processing orchestrator.
@@ -83,7 +82,7 @@ class ProXdrOrchestrator(
     )
 
     private fun isThermalSevere(scene: SceneDescriptor?): Boolean =
-        (scene?.thermalLevel ?: 0) >= THERMAL_SEVERE_ORDINAL
+        ThermalState.fromOrdinal(scene?.thermalLevel ?: 0) >= ThermalState.MULTI_FRAME_CUTOFF
 
     private fun singleFrameResult(frame: PipelineFrame): LeicaResult<HdrMergeResult> =
         LeicaResult.Success(
@@ -120,9 +119,10 @@ class ProXdrOrchestrator(
         val alignResult = aligner.align(reference, alternates, ghostMask)
         val aligned = when (alignResult) {
             is LeicaResult.Success -> alignResult.value.alignedFrames
-            is LeicaResult.Failure -> return alignResult.map { it.mergedFrame }.flatMap {
-                LeicaResult.Failure.Pipeline(PipelineStage.IMAGING_PIPELINE, "Alignment failed")
-            }
+            is LeicaResult.Failure -> return LeicaResult.Failure.Pipeline(
+                PipelineStage.IMAGING_PIPELINE,
+                "Alignment failed",
+            )
         }
 
         // D2.5: Per-channel Wiener merge

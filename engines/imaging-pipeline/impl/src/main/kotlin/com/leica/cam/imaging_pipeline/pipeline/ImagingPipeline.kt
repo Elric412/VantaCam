@@ -1208,38 +1208,15 @@ class LuminositySharpener {
  * mutating shared state — enables safe concurrent use.
  */
 class ImagingPipeline(
-    private val alignmentEngine: FrameAlignmentEngine,
-    private val hdrMergeEngine: HdrMergeEngine,
+    private val proXdrOrchestrator: com.leica.cam.imaging_pipeline.hdr.ProXdrOrchestrator,
     private val toneMappingEngine: DurandBilateralToneMappingEngine,
     private val sCurveEngine: CinematicSCurveEngine,
     private val shadowDenoiser: ShadowDenoiseEngine,
     private val luminositySharpener: LuminositySharpener,
-    /** D1.8: Optional neural ISP refinement (ultra-wide/front only). Null when disabled. */
-    private val microIspRunner: com.leica.cam.ai_engine.impl.models.MicroIspRunner? = null,
-    /** D1.8: Optional semantic segmentation for priority tone mapping. Null when disabled. */
-    private val semanticSegmenterRunner: com.leica.cam.ai_engine.impl.models.SemanticSegmenterRunner? = null,
+    private val microIspRefiner: com.leica.cam.ai_engine.api.NeuralIspRefiner? = null,
+    private val semanticSegmenter: com.leica.cam.ai_engine.api.SemanticSegmenter? = null,
 ) {
 
-    /**
-     * Process a burst of frames through the full imaging pipeline.
-     *
-     * @param frames        Input frames — should be linear RAW-domain RGB.
-     *                      First frame is used as alignment reference.
-     * @param semanticMask  Optional per-pixel semantic zone map for priority TM.
-     * @param faceMask      Optional face bounding mask for face-tone pass.
-     * @param noiseModel    Physics-grounded noise model from sensor metadata.
-     *                      If null, estimated from frame ISO/exposure metadata.
-     */
-    /**
-     * Process a burst of frames through the full imaging pipeline.
-     *
-     * @param frames          Input frames -- linear RAW-domain RGB. First = alignment ref.
-     * @param semanticMask    Optional pre-computed semantic zone map.
-     * @param faceMask        Optional face bounding mask for face-tone pass.
-     * @param noiseModel      Physics-grounded noise model from sensor metadata.
-     * @param sensorId        Active sensor identifier (gates MicroISP eligibility).
-     * @param microIspEligible Whether the active sensor qualifies for neural ISP.
-     */
     fun process(
         frames: List<PipelineFrame>,
         semanticMask: SemanticMask? = null,
@@ -1248,130 +1225,191 @@ class ImagingPipeline(
         sensorId: String? = null,
         microIspEligible: Boolean = false,
     ): LeicaResult<PipelineFrame> {
-        // Stage 1: Multi-scale frame alignment
-        val alignResult = alignmentEngine.align(frames)
-            .let { if (it is LeicaResult.Failure) return it else (it as LeicaResult.Success).value }
-
-        // Derive effective noise model from best available source
         val effectiveNoise = noiseModel ?: NoiseModel.fromIsoAndExposure(
             frames.minOf { it.isoEquivalent },
             frames.minOf { it.exposureTimeNs },
         )
+        val hdrResult = when (
+            val result = proXdrOrchestrator.process(
+                frames = frames,
+                scene = null,
+                noiseModel = effectiveNoise,
+                perChannelNoise = null,
+                userHdrMode = com.leica.cam.imaging_pipeline.api.UserHdrMode.SMART,
+            )
+        ) {
+            is LeicaResult.Success -> result.value
+            is LeicaResult.Failure -> return result
+        }
 
-        // Stage 2: Ghost-free HDR merge (Wiener burst or Debevec linear)
-        val hdrResult = hdrMergeEngine.merge(alignResult.alignedFrames, effectiveNoise)
-            .let { if (it is LeicaResult.Failure) return it else (it as LeicaResult.Success).value }
-
-        // Stage 3: Shadow denoising BEFORE any tone lift -- sacred rule (LUMO Law 4)
         val denoised = shadowDenoiser.denoise(hdrResult.mergedFrame, effectiveNoise)
-
-        // Stage 3.5: Neural ISP refinement (D1.8) -- ultra-wide/front only.
-        // Gated by sensor profile: S5KHM6 (main Samsung) is excluded because
-        // double-processing with Imagiq HAL ISP causes over-sharpening artefacts.
-        val ispRefined = if (microIspRunner != null && microIspEligible &&
-            sensorId != null && microIspRunner.isEligible(sensorId)
+        val ispRefined = if (
+            microIspRefiner != null &&
+            microIspEligible &&
+            sensorId != null &&
+            microIspRefiner.isEligible(sensorId)
         ) {
             applyMicroIsp(denoised)
-        } else denoised
-
-        // Stage 3.6: Semantic segmentation (D1.8) -- auto-compute if not provided.
-        // Output SemanticMask feeds into Durand bilateral for priority local EV.
+        } else {
+            denoised
+        }
         val autoMask = semanticMask ?: autoSegment(ispRefined, frames.first().isoEquivalent)
-
-        // Stage 4: Durand bilateral local tone mapping with semantic priority
-        // D2 gotcha: if HDR mode is MERTENS_FUSION, skip bilateral TM (already display-referred)
-        val toneMap = if (hdrResult.hdrMode == HdrMergeMode.MERTENS_FUSION) {
-            ispRefined // Mertens output is already tone-mapped; skip bilateral to avoid over-compression
+        val toneMapped = if (hdrResult.hdrMode == HdrMergeMode.MERTENS_FUSION) {
+            ispRefined
         } else {
             toneMappingEngine.apply(ispRefined, autoMask)
         }
-
-        // Stage 5: Cinematic S-curve with face-specific overrides
-        val sCurved = sCurveEngine.apply(toneMap, faceMask)
-
-        // Stage 6: Luminosity-only sharpening (Lab L channel)
+        val sCurved = sCurveEngine.apply(toneMapped, faceMask)
         val sharpened = luminositySharpener.sharpen(sCurved, amount = 0.5f, radius = 1.0f)
-
         return LeicaResult.Success(sharpened)
     }
 
-    /**
-     * Apply MicroISP neural refinement tile-by-tile over the frame.
-     * Falls back to unmodified input if inference fails.
-     */
     private fun applyMicroIsp(frame: PipelineFrame): PipelineFrame {
-        val runner = microIspRunner ?: return frame
-        // Simplified: in production this tiles the frame at 256x256 with overlap.
-        // For now, we pass through -- the runner will be called when full tiling is implemented.
-        // The key gate (sensor eligibility) is enforced by the caller.
-        return frame
-    }
+        val refiner = microIspRefiner ?: return frame
+        val tileSize = 256
+        val stride = 224
+        val out = frame.copyChannels()
 
-    /**
-     * Auto-compute semantic segmentation from the frame if the runner is available.
-     * Returns null if the segmenter is not loaded (falls back to global tone mapping).
-     */
-    private fun autoSegment(frame: PipelineFrame, isoEquivalent: Int): SemanticMask? {
-        val runner = semanticSegmenterRunner ?: return null
-        // Downsample to 257x257 for DeepLabv3
-        val tile = downsample257x257(frame)
-        val result = runner.segment(tile, frame.width, frame.height, isoEquivalent)
-        return when (result) {
-            is LeicaResult.Success -> result.value
-            is LeicaResult.Failure -> null // Graceful degradation: no mask = global TM
+        var tileY = 0
+        while (tileY < frame.height) {
+            var tileX = 0
+            while (tileX < frame.width) {
+                when (val refined = refiner.refine(extractBayerTile(frame, tileX, tileY, tileSize))) {
+                    is LeicaResult.Success -> blendTile(out, refined.value, tileX, tileY, tileSize)
+                    is LeicaResult.Failure -> Unit
+                }
+                tileX += stride
+            }
+            tileY += stride
         }
+        return out
     }
 
-    /**
-     * Downsample a PipelineFrame to 257x257x3 RGB for the segmentation model.
-     */
-    private fun downsample257x257(frame: PipelineFrame): FloatArray {
-        val dim = 257
-        val tile = FloatArray(dim * dim * 3)
-        val scaleX = frame.width.toFloat() / dim
-        val scaleY = frame.height.toFloat() / dim
-        var idx = 0
-        for (y in 0 until dim) {
-            val srcY = (y * scaleY).toInt().coerceIn(0, frame.height - 1)
-            for (x in 0 until dim) {
-                val srcX = (x * scaleX).toInt().coerceIn(0, frame.width - 1)
-                val srcIdx = srcY * frame.width + srcX
-                tile[idx++] = frame.red[srcIdx]
-                tile[idx++] = frame.green[srcIdx]
-                tile[idx++] = frame.blue[srcIdx]
+    private fun extractBayerTile(
+        frame: PipelineFrame,
+        startX: Int,
+        startY: Int,
+        tileSize: Int,
+    ): FloatArray {
+        val tile = FloatArray(tileSize * tileSize * 4)
+        var index = 0
+        for (y in 0 until tileSize) {
+            val srcY = (startY + y).coerceIn(0, frame.height - 1)
+            for (x in 0 until tileSize) {
+                val srcX = (startX + x).coerceIn(0, frame.width - 1)
+                val srcIndex = srcY * frame.width + srcX
+                tile[index++] = frame.red[srcIndex]
+                tile[index++] = frame.green[srcIndex]
+                tile[index++] = frame.green[srcIndex]
+                tile[index++] = frame.blue[srcIndex]
             }
         }
         return tile
     }
 
-    /**
-     * Fast preview path using Reinhard global tone mapping.
-     * Skips bilateral decomposition for < 10ms end-to-end on mid-range SoC.
-     */
-    fun processPreview(frame: PipelineFrame): PipelineFrame {
-        return toneMappingEngine.applyReinhard(frame)
+    private fun blendTile(
+        out: PipelineFrame,
+        refinedTile: FloatArray,
+        startX: Int,
+        startY: Int,
+        tileSize: Int,
+    ) {
+        val overlap = 32
+        var index = 0
+        for (y in 0 until tileSize) {
+            val dstY = startY + y
+            if (dstY >= out.height) {
+                index += tileSize * 4
+                continue
+            }
+            for (x in 0 until tileSize) {
+                val dstX = startX + x
+                if (dstX >= out.width) {
+                    index += 4
+                    continue
+                }
+                val dstIndex = dstY * out.width + dstX
+                val weight = blendWeight(x, y, tileSize, overlap)
+                val refinedGreen = (refinedTile[index + 1] + refinedTile[index + 2]) * 0.5f
+                out.red[dstIndex] = out.red[dstIndex] * (1f - weight) + refinedTile[index] * weight
+                out.green[dstIndex] = out.green[dstIndex] * (1f - weight) + refinedGreen * weight
+                out.blue[dstIndex] = out.blue[dstIndex] * (1f - weight) + refinedTile[index + 3] * weight
+                index += 4
+            }
+        }
+    }
+
+    private fun blendWeight(x: Int, y: Int, tileSize: Int, overlap: Int): Float {
+        val left = ((x + 1).toFloat() / overlap).coerceAtMost(1f)
+        val right = ((tileSize - x).toFloat() / overlap).coerceAtMost(1f)
+        val top = ((y + 1).toFloat() / overlap).coerceAtMost(1f)
+        val bottom = ((tileSize - y).toFloat() / overlap).coerceAtMost(1f)
+        return min(min(left, right), min(top, bottom)).coerceIn(0f, 1f)
+    }
+
+    private fun autoSegment(frame: PipelineFrame, isoEquivalent: Int): SemanticMask? {
+        val runner = semanticSegmenter ?: return null
+        val tile = downsample257x257(frame)
+        return when (val result = runner.segment(tile, frame.width, frame.height, isoEquivalent)) {
+            is LeicaResult.Success -> result.value.toSemanticMask()
+            is LeicaResult.Failure -> null
+        }
+    }
+
+    private fun downsample257x257(frame: PipelineFrame): FloatArray {
+        val dim = 257
+        val tile = FloatArray(dim * dim * 3)
+        val scaleX = frame.width.toFloat() / dim
+        val scaleY = frame.height.toFloat() / dim
+        var index = 0
+        for (y in 0 until dim) {
+            val srcY = (y * scaleY).toInt().coerceIn(0, frame.height - 1)
+            for (x in 0 until dim) {
+                val srcX = (x * scaleX).toInt().coerceIn(0, frame.width - 1)
+                val srcIndex = srcY * frame.width + srcX
+                tile[index++] = frame.red[srcIndex]
+                tile[index++] = frame.green[srcIndex]
+                tile[index++] = frame.blue[srcIndex]
+            }
+        }
+        return tile
+    }
+
+    private fun com.leica.cam.ai_engine.api.SemanticSegmentationOutput.toSemanticMask(): SemanticMask {
+        val zones = Array(width * height) { index ->
+            when (
+                com.leica.cam.ai_engine.api.SemanticZoneCode.entries[
+                    zoneCodes[index].coerceIn(0, com.leica.cam.ai_engine.api.SemanticZoneCode.entries.size - 1)
+                ]
+            ) {
+                com.leica.cam.ai_engine.api.SemanticZoneCode.BACKGROUND -> SemanticZone.BACKGROUND
+                com.leica.cam.ai_engine.api.SemanticZoneCode.MIDGROUND -> SemanticZone.MIDGROUND
+                com.leica.cam.ai_engine.api.SemanticZoneCode.PERSON -> SemanticZone.PERSON
+                com.leica.cam.ai_engine.api.SemanticZoneCode.SKY -> SemanticZone.MIDGROUND
+                com.leica.cam.ai_engine.api.SemanticZoneCode.UNKNOWN -> SemanticZone.UNKNOWN
+            }
+        }
+        return SemanticMask(width, height, zones)
+    }
+
+    fun processPreview(frame: PipelineFrame): PipelineFrame = toneMappingEngine.applyReinhard(frame)
+}
+
+class FfdNetNoiseReductionEngine(
+    private val shadowDenoiser: ShadowDenoiseEngine = ShadowDenoiseEngine(),
+) {
+    fun denoise(frame: PipelineFrame, noiseSigma: Float): PipelineFrame {
+        val sigmaSq = (noiseSigma * noiseSigma).coerceAtLeast(1e-6f)
+        return shadowDenoiser.denoise(
+            frame = frame,
+            noiseModel = NoiseModel(shotCoeff = sigmaSq, readNoiseSq = sigmaSq * 0.1f),
+        )
     }
 }
 
-/**
- * High-level burst capture orchestrator that determines HDR mode adaptively.
- *
- * Selects between single-frame, same-exposure burst, and EV-bracket modes
- * based on scene dynamic range, thermal state, and available metadata.
- */
 class ImagingPipelineOrchestrator(
     private val pipeline: ImagingPipeline,
-    private val hdrMergeEngine: HdrMergeEngine,
-    private val alignmentEngine: FrameAlignmentEngine,
-    private val toneMappingEngine: DurandBilateralToneMappingEngine,
-    private val shadowDenoiser: ShadowDenoiseEngine,
-    private val luminositySharpener: LuminositySharpener,
 ) {
-
-    /**
-     * Process a burst, routing to full pipeline.
-     * [noiseSigma] is used as a hint when sensor metadata is unavailable.
-     */
     fun processBurst(
         frames: List<PipelineFrame>,
         noiseSigma: Float = 0.02f,
@@ -1380,7 +1418,10 @@ class ImagingPipelineOrchestrator(
     ): LeicaResult<PipelineFrame> {
         val noiseModel = frames.firstOrNull()?.let {
             NoiseModel.fromIsoAndExposure(it.isoEquivalent, it.exposureTimeNs)
-        } ?: NoiseModel(shotCoeff = noiseSigma * noiseSigma, readNoiseSq = noiseSigma * noiseSigma * 0.1f)
+        } ?: NoiseModel(
+            shotCoeff = noiseSigma * noiseSigma,
+            readNoiseSq = noiseSigma * noiseSigma * 0.1f,
+        )
 
         return pipeline.process(
             frames = frames,

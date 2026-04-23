@@ -15,6 +15,7 @@ android {
 
 dependencies {
     implementation(project(":imaging-pipeline:api"))
+    implementation(project(":ai-engine:api"))
     implementation(project(":common"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.kotlinx.coroutines.core)

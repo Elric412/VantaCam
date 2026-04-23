@@ -94,10 +94,14 @@ class RadianceMerger(
             for (f in aligned) {
                 val luma = LUM_R * f.red[i] + LUM_G * f.green[i] + LUM_B * f.blue[i]
                 val deviation = abs(luma - meanLuma)
-                val sigma2Total = noise.green.varianceAt(luma) + lumaVar
+                val sigma2Combined =
+                    LUM_R * LUM_R * noise.red.varianceAt(f.red[i]) +
+                        LUM_G * LUM_G * noise.green.varianceAt(f.green[i]) +
+                        LUM_B * LUM_B * noise.blue.varianceAt(f.blue[i]) +
+                        lumaVar
 
                 // Motion penalty: reject frames deviating > 3sigma from mean
-                val motionPenalty = if (deviation > 3f * sqrt(sigma2Total)) 0f else 1f
+                val motionPenalty = if (deviation > 3f * sqrt(sigma2Combined)) 0f else 1f
 
                 // Ghost mask penalty (soft, from GhostMaskEngine)
                 val ghostPenalty = ghostMask?.let { 1f - it[i] } ?: 1f

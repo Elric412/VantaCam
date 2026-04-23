@@ -1,5 +1,6 @@
 package com.leica.cam.imaging_pipeline.hdr
 
+import com.leica.cam.common.ThermalState
 import com.leica.cam.imaging_pipeline.api.UserHdrMode
 import com.leica.cam.imaging_pipeline.pipeline.HdrMergeMode
 import com.leica.cam.imaging_pipeline.pipeline.PipelineFrame
@@ -33,8 +34,6 @@ data class SceneDescriptor(
 enum class SceneCategory {
     GENERAL, PORTRAIT, LANDSCAPE, NIGHT, STAGE, SNOW, BACKLIT_PORTRAIT,
 }
-
-enum class ThermalState { NORMAL, ELEVATED, HIGH, SEVERE }
 
 /**
  * Metadata describing the frame set available for HDR processing.

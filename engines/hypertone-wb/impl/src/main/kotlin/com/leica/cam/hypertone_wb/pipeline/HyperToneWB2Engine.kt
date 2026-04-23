@@ -54,7 +54,8 @@ class HyperToneWB2Engine {
         sensorToXyz3x3: FloatArray,
         sceneContext: SceneContext? = null,
         skinMask: BooleanArray? = null,
-        neuralCctPrior: com.leica.cam.ai_engine.impl.models.AwbPrediction? = null,
+        neuralCctPrior: com.leica.cam.ai_engine.api.AwbNeuralPrior? = null,
+        sensorWbBias: FloatArray? = null,
     ): LeicaResult<RgbFrame> {
         require(sensorToXyz3x3.size == 9) {
             "sensorToXyz3x3 must be a 3×3 row-major matrix (9 elements)"
@@ -100,7 +101,7 @@ class HyperToneWB2Engine {
         val gainField = buildGainField(frame, sceneContext, finalCct, sensorToXyz3x3)
 
         // ── Step 7: Apply gain field + tint correction ────────────────────
-        val corrected = applyGainField(frame, gainField, smoothedGreen)
+        val corrected = applyGainField(frame, gainField, smoothedGreen, sensorWbBias)
 
         // Update temporal state
         prevCctKelvin = finalCct
@@ -342,12 +343,16 @@ class HyperToneWB2Engine {
         frame: RgbFrame,
         gainField: Triple<FloatArray, FloatArray, FloatArray>,
         tintGreenGain: Float,
+        sensorWbBias: FloatArray?,
     ): RgbFrame {
         val (rGain, gGain, bGain) = gainField
+        val rBias = sensorWbBias?.getOrNull(0) ?: 1f
+        val gBias = sensorWbBias?.getOrNull(1) ?: 1f
+        val bBias = sensorWbBias?.getOrNull(2) ?: 1f
         val n = frame.pixelCount
-        val outR = FloatArray(n) { (frame.red[it] * rGain[it]).coerceAtLeast(0f) }
-        val outG = FloatArray(n) { (frame.green[it] * gGain[it] * tintGreenGain).coerceAtLeast(0f) }
-        val outB = FloatArray(n) { (frame.blue[it] * bGain[it]).coerceAtLeast(0f) }
+        val outR = FloatArray(n) { (frame.red[it] * rGain[it] * rBias).coerceAtLeast(0f) }
+        val outG = FloatArray(n) { (frame.green[it] * gGain[it] * tintGreenGain * gBias).coerceAtLeast(0f) }
+        val outB = FloatArray(n) { (frame.blue[it] * bGain[it] * bBias).coerceAtLeast(0f) }
         return RgbFrame(frame.width, frame.height, outR, outG, outB)
     }
 

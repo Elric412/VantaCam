@@ -9,7 +9,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import java.nio.ByteBuffer
-import java.nio.ByteOrder
 import javax.inject.Inject
 import javax.inject.Named
 
@@ -17,10 +16,10 @@ import javax.inject.Named
  * Application entry point for LeicaCam.
  *
  * D1.9: At startup, warms up all on-device AI models in a background coroutine
- * to amortise JIT / delegate-compile cost off the capture path.
+ * to amortise delegate compilation and first-inference cost off the capture path.
  *
- * Target: < 2s total warm-up on the UI splash (sequential with GC between each
- * model to stay under the 400 MB OOM threshold on low-end devices).
+ * Warm-up is sequential and uses bounded synthetic buffers sized per role so the
+ * app does not need model-specific special cases in Application startup.
  */
 @HiltAndroidApp
 class LeicaCamApp : Application() {
@@ -38,10 +37,10 @@ class LeicaCamApp : Application() {
     override fun onCreate() {
         super.onCreate()
 
-        // D1.9: Warm up on-device models in background.
-        // Sequential warm-up with GC hints between each to prevent OOM.
-        // Only AwbModelRunner and FaceLandmarkerRunner are warmed eagerly;
-        // MicroIspRunner and SemanticSegmenterRunner are deferred until first shutter press.
+        // D1.9: Warm up all on-device AI models in a background coroutine so
+        // the first shutter press after app start doesn't pay the delegate-compile cost.
+        // Models are warmed sequentially with a bounded warm-up buffer size to stay
+        // under the low-memory ceiling on devices without large heaps.
         appScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
                 // Yield briefly so the first frame reaches the GPU before we contend for memory.

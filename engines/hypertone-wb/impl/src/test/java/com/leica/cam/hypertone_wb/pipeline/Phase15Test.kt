@@ -1,61 +1,64 @@
 package com.leica.cam.hypertone_wb.pipeline
 
-import com.leica.cam.ai_engine.pipeline.SceneClassification
-import com.leica.cam.ai_engine.pipeline.SceneType
 import com.leica.cam.common.result.LeicaResult
 import com.leica.cam.hardware.contracts.TrueColourHardwareSensor
 import com.leica.cam.hardware.contracts.TrueColourRawReading
-import org.junit.Assert.*
+import com.leica.cam.hypertone_wb.api.IlluminantClass
+import com.leica.cam.hypertone_wb.api.TileCTEstimate
+import com.leica.cam.hardware.contracts.photon.PhotonBuffer
+import com.leica.cam.photon_matrix.FusedPhotonBuffer
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
-import org.junit.runner.RunWith
-import org.mockito.Mock
-import org.mockito.Mockito.*
-import org.mockito.junit.MockitoJUnitRunner
 
-@RunWith(MockitoJUnitRunner::class)
 class Phase15Test {
-
-    @Mock
-    lateinit var mockHardwareSensor: TrueColourHardwareSensor
-
     private lateinit var partitionedCTSensor: PartitionedCTSensor
     private lateinit var fusion: MultiModalIlluminantFusion
-    private lateinit var classifier: IlluminantClassifier
 
     @Before
     fun setup() {
-        classifier = object : IlluminantClassifier {
+        val hardwareSensor = object : TrueColourHardwareSensor {
+            override fun readFullGrid(): List<TrueColourRawReading> = (0 until 16).map {
+                TrueColourRawReading(it / 4, it % 4, 5500f, 100f, 0.9f)
+            }
+
+            override fun getConfidence(): Float = 0.9f
+        }
+        val classifier = object : IlluminantClassifier {
             override fun classify(kelvin: Float): IlluminantClass = IlluminantClass.DAYLIGHT_DIRECT
         }
-        partitionedCTSensor = PartitionedCTSensor(mockHardwareSensor, classifier)
+        partitionedCTSensor = PartitionedCTSensor(hardwareSensor, classifier)
         fusion = MultiModalIlluminantFusion()
     }
 
     @Test
-    fun testPartitionedCTSensor_Returns16Tiles() {
-        val readings = (0 until 16).map {
-            TrueColourRawReading(it / 4, it % 4, 5500f, 100f, 0.9f)
-        }
-        `when`(mockHardwareSensor.readFullGrid()).thenReturn(readings)
+    fun partitionedCtSensorReturnsConfiguredGrid() {
+        val result = partitionedCTSensor.estimateTiledCT(dummyFusedBuffer())
 
-        val result = partitionedCTSensor.sensePartitions()
         assertTrue(result is LeicaResult.Success)
         assertEquals(16, (result as LeicaResult.Success).value.size)
     }
 
     @Test
-    fun testMultiModalFusion_WeightsCorrectly() {
+    fun multiModalFusionWeightsHardwareAgainstAiKelvin() {
         val hwEstimates = (0 until 16).map {
             TileCTEstimate(it / 4, it % 4, 5000f, 0.9f, IlluminantClass.DAYLIGHT_DIRECT)
         }
-        val aiClassification = SceneClassification(SceneType.LANDSCAPE, 0.8f, emptyMap())
 
-        val fused = fusion.fuse(hwEstimates, aiClassification)
+        val fused = fusion.fuse(hwEstimates, aiKelvin = 5500f)
 
-        // HW confidence 0.9 > 0.8 => HW weight 0.7, AI weight 0.3
-        // Landscape maps to 5500f
-        // Fused Kelvin = 5000 * 0.7 + 5500 * 0.3 = 3500 + 1650 = 5150
-        assertEquals(5150f, fused.tiles[0].kelvin, 1f)
+        assertEquals(5150f, fused.tiles.first().kelvin, 1f)
     }
+
+    private fun dummyFusedBuffer(): FusedPhotonBuffer = FusedPhotonBuffer(
+        underlying = PhotonBuffer.create16Bit(
+            width = 1,
+            height = 1,
+            planes = listOf(shortArrayOf(1), shortArrayOf(1), shortArrayOf(1)),
+        ),
+        fusionQuality = 1f,
+        frameCount = 1,
+        motionMagnitude = 0f,
+    )
 }

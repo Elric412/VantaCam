@@ -85,6 +85,19 @@ tasks.named("preBuild").configure {
 }
 
 dependencies {
+    implementation(project(":ai-engine:impl"))
+    implementation(project(":imaging-pipeline:impl"))
+    implementation(project(":hypertone-wb:impl"))
+    implementation(project(":color-science:impl"))
+    implementation(project(":depth-engine:impl"))
+    implementation(project(":face-engine:impl"))
+    implementation(project(":neural-isp:impl"))
+    implementation(project(":photon-matrix:impl"))
+    implementation(project(":smart-imaging:impl"))
+    implementation(project(":bokeh-engine:impl"))
+    implementation(project(":motion-engine:impl"))
+    implementation(project(":native-imaging-core:impl"))
+    implementation(project(":camera-core:impl"))
     implementation(libs.androidx.navigation.compose)
     implementation(libs.accompanist.permissions)
     implementation(project(":feature:camera"))

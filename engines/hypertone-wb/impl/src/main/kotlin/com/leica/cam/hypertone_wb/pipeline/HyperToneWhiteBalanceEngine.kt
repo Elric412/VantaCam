@@ -1,7 +1,7 @@
 package com.leica.cam.hypertone_wb.pipeline
 
-import com.leica.cam.ai_engine.impl.models.AwbModelRunner
-import com.leica.cam.ai_engine.impl.models.AwbPrediction
+import com.leica.cam.ai_engine.api.AwbNeuralPrior
+import com.leica.cam.ai_engine.api.AwbPredictor
 import com.leica.cam.common.result.LeicaResult
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -23,13 +23,13 @@ import javax.inject.Singleton
 @Singleton
 class HyperToneWhiteBalanceEngine @Inject constructor(
     private val wb2Engine: HyperToneWB2Engine,
-    private val awbRunner: AwbModelRunner?,
+    private val awbPredictor: AwbPredictor?,
 ) {
     /**
      * Executes white balance processing with optional neural AWB prior.
      *
-     * @param wbBias Per-sensor R/G/B gain pre-multiplier from SensorProfile.
-     *               Applied to the 224x224 tile before AWB inference.
+     * @param wbBias Per-sensor R/G/B gain bias from SensorProfile.
+     *               Applied after AWB inference when building the final WB gain field.
      */
     suspend fun process(
         frame: RgbFrame,
@@ -38,15 +38,20 @@ class HyperToneWhiteBalanceEngine @Inject constructor(
         skinMask: BooleanArray? = null,
         wbBias: FloatArray? = null,
     ): LeicaResult<RgbFrame> {
-        // D1.7: If AWB model is available, run neural CCT estimation as prior
-        val neuralPrediction = if (awbRunner != null && wbBias != null) {
-            runAwbModel(frame, wbBias)
-        } else null
+        val effectiveWbBias = wbBias ?: NEUTRAL_WB_BIAS
+        val neuralPrediction = if (awbPredictor != null) {
+            runAwbModel(frame, effectiveWbBias)
+        } else {
+            null
+        }
 
-        // Pass neural prediction to WB2Engine for blending with Robertson estimator
         return wb2Engine.process(
-            frame, sensorToXyz3x3, sceneContext, skinMask,
+            frame = frame,
+            sensorToXyz3x3 = sensorToXyz3x3,
+            sceneContext = sceneContext,
+            skinMask = skinMask,
             neuralCctPrior = neuralPrediction,
+            sensorWbBias = effectiveWbBias,
         )
     }
 
@@ -54,9 +59,9 @@ class HyperToneWhiteBalanceEngine @Inject constructor(
      * Run the AWB neural model on a downsampled 224x224 tile from the frame.
      * Returns null if inference fails (grey-world fallback will be used).
      */
-    private fun runAwbModel(frame: RgbFrame, wbBias: FloatArray): AwbPrediction? {
+    private fun runAwbModel(frame: RgbFrame, wbBias: FloatArray): AwbNeuralPrior? {
         val tile = downsample224x224(frame)
-        val result = awbRunner?.predict(tile, wbBias)
+        val result = awbPredictor?.predict(tile, wbBias)
         return when (result) {
             is LeicaResult.Success -> {
                 val pred = result.value
@@ -115,5 +120,6 @@ class HyperToneWhiteBalanceEngine @Inject constructor(
     companion object {
         /** Minimum AWB model confidence to use neural CCT (else grey-world). */
         private const val AWB_MIN_CONFIDENCE = 0.3f
+        private val NEUTRAL_WB_BIAS = floatArrayOf(1f, 1f, 1f)
     }
 }

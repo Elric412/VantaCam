@@ -1,5 +1,6 @@
 package com.leica.cam.nativeimagingcore
 
+import com.leica.cam.common.ThermalState
 import com.leica.cam.common.result.LeicaResult
 import com.leica.cam.common.result.PipelineStage
 import kotlinx.coroutines.CoroutineDispatcher
@@ -93,11 +94,11 @@ class ImagingRuntimeOrchestrator(
     private fun thermalAwareRequest(request: ProcessingRequest): ProcessingRequest? {
         val thermal = latestThermalLevel.get()
         return when {
-            thermal >= CRITICAL_THERMAL_LEVEL -> {
+            thermal >= ThermalState.FRAME_DROP_CUTOFF.androidOrdinal -> {
                 val frameIndex = highThermalFrameModulo.incrementAndGet()
                 if (frameIndex % HIGH_THERMAL_DROP_MODULO == 0) request else null
             }
-            thermal >= HIGH_THERMAL_LEVEL && request.mode == ProcessingMode.HDR_BURST -> {
+            thermal >= ThermalState.MULTI_FRAME_CUTOFF.androidOrdinal && request.mode == ProcessingMode.HDR_BURST -> {
                 request.copy(mode = ProcessingMode.CAPTURE)
             }
             else -> {
@@ -115,8 +116,6 @@ class ImagingRuntimeOrchestrator(
     }
 
     private companion object {
-        private const val HIGH_THERMAL_LEVEL = 6
-        private const val CRITICAL_THERMAL_LEVEL = 8
         private const val HIGH_THERMAL_DROP_MODULO = 2
     }
 }

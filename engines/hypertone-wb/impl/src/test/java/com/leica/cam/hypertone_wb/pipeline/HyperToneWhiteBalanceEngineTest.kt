@@ -1,38 +1,16 @@
 package com.leica.cam.hypertone_wb.pipeline
 
-import com.leica.cam.ai_engine.pipeline.SceneClassifier
-import com.leica.cam.gpu_compute.GpuBackend
-import com.leica.cam.hardware.contracts.TrueColourHardwareSensor
+import com.leica.cam.common.result.LeicaResult
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
-import org.junit.Before
 import org.junit.Test
-import org.junit.runner.RunWith
-import org.mockito.Mock
-import org.mockito.Mockito.*
-import org.mockito.junit.MockitoJUnitRunner
 
-@RunWith(MockitoJUnitRunner::class)
 class HyperToneWhiteBalanceEngineTest {
-
-    @Mock lateinit var mockPcts: PartitionedCTSensor
-    @Mock lateinit var mockFusion: MultiModalIlluminantFusion
-    @Mock lateinit var mockSpatial: MixedLightSpatialWbEngine
-    @Mock lateinit var mockAi: SceneClassifier
-    @Mock lateinit var mockTemporal: WbTemporalMemory
-    @Mock lateinit var mockSkinGuard: SkinZoneWbGuard
-    @Mock lateinit var mockGpu: GpuBackend
-
-    private lateinit var engine: HyperToneWhiteBalanceEngine
-
-    @Before
-    fun setup() {
-        val wb2 = HyperToneWB2Engine(
-            mockPcts, mockFusion, mockSpatial, mockAi, mockTemporal, mockSkinGuard, mockGpu
-        )
-        engine = HyperToneWhiteBalanceEngine(wb2)
-    }
+    private val engine = HyperToneWhiteBalanceEngine(
+        wb2Engine = HyperToneWB2Engine(),
+        awbPredictor = null,
+    )
 
     private val identitySensorCcm = floatArrayOf(
         1f, 0f, 0f,
@@ -41,11 +19,19 @@ class HyperToneWhiteBalanceEngineTest {
     )
 
     @Test
-    fun testProcess_DelegatesToWb2() = runTest {
-        val frame = syntheticFrame(64, 64) { _, _ -> Triple(0.5f, 0.5f, 0.5f) }
+    fun processReturnsRgbFrameWithSameDimensions() = runTest {
+        val frame = syntheticFrame(32, 24) { _, _ -> Triple(0.5f, 0.5f, 0.5f) }
 
-        // Mocking the whole chain for a simple delegation test
-        // This is a bit simplified, a real integration test would be better
+        val result = engine.process(
+            frame = frame,
+            sensorToXyz3x3 = identitySensorCcm,
+        )
+
+        assertTrue(result is LeicaResult.Success)
+        val output = (result as LeicaResult.Success).value
+        assertEquals(frame.width, output.width)
+        assertEquals(frame.height, output.height)
+        assertEquals(frame.pixelCount, output.pixelCount)
     }
 
     private fun syntheticFrame(
@@ -54,19 +40,18 @@ class HyperToneWhiteBalanceEngineTest {
         producer: (x: Int, y: Int) -> Triple<Float, Float, Float>,
     ): RgbFrame {
         val size = width * height
-        val r = FloatArray(size)
-        val g = FloatArray(size)
-        val b = FloatArray(size)
-
+        val red = FloatArray(size)
+        val green = FloatArray(size)
+        val blue = FloatArray(size)
         for (y in 0 until height) {
             for (x in 0 until width) {
                 val index = y * width + x
-                val (rv, gv, bv) = producer(x, y)
-                r[index] = rv.coerceIn(0f, 1f)
-                g[index] = gv.coerceIn(0f, 1f)
-                b[index] = bv.coerceIn(0f, 1f)
+                val (r, g, b) = producer(x, y)
+                red[index] = r
+                green[index] = g
+                blue[index] = b
             }
         }
-        return RgbFrame(width, height, r, g, b)
+        return RgbFrame(width, height, red, green, blue)
     }
 }
