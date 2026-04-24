@@ -28,6 +28,14 @@ import kotlin.math.sqrt
  * **Output is display-referred LDR.** Cannot be fed into ToneLM bilateral
  * decomposition (Mertens already tone-mapped; bilateral would over-compress).
  * In ImagingPipeline.process, the MERTENS_FUSION branch SKIPS bilateral TM.
+ *
+ * **P2-14 efficiency fix:** The previous [pyramidBlend] implementation called
+ * [gaussianLevel] independently for every channel (R, G, B) and every level,
+ * rebuilding the full Gaussian pyramid 3 × levels times per frame.  Since all
+ * three channels share the *same* weight map and the *same* Laplacian pyramid
+ * structure, we now pre-build every frame's full Gaussian and Laplacian pyramid
+ * once and reuse them across channels.  This cuts redundant blur passes from
+ * O(3 × levels × frames) to O(levels × frames).
  */
 class MertensFallback {
 
@@ -53,10 +61,20 @@ class MertensFallback {
         // Step 2: normalise weights per pixel
         val normalised = normaliseWeightsPerPixel(weightMaps, frames.size, size)
 
-        // Step 3: Laplacian pyramid blend per channel
-        val outR = pyramidBlend(frames.map { it.red }, normalised, width, height, levels)
-        val outG = pyramidBlend(frames.map { it.green }, normalised, width, height, levels)
-        val outB = pyramidBlend(frames.map { it.blue }, normalised, width, height, levels)
+        // Step 3: Pre-build per-frame Gaussian pyramids for each channel ONCE
+        // (P2-14 fix: old code rebuilt them three times — once per R/G/B channel).
+        // Also pre-build Gaussian pyramids for normalised weight maps.
+        val redPyrs   = frames.map { buildGaussianPyramid(it.red,   width, height, levels) }
+        val greenPyrs = frames.map { buildGaussianPyramid(it.green, width, height, levels) }
+        val bluePyrs  = frames.map { buildGaussianPyramid(it.blue,  width, height, levels) }
+        val weightGaussPyrs = (0 until frames.size).map { f ->
+            buildGaussianPyramid(normalised[f], width, height, levels)
+        }
+
+        // Step 4: Laplacian pyramid blend per channel using pre-built pyramids
+        val outR = pyramidBlendFromPyramids(redPyrs,   weightGaussPyrs, width, height, levels)
+        val outG = pyramidBlendFromPyramids(greenPyrs, weightGaussPyrs, width, height, levels)
+        val outB = pyramidBlendFromPyramids(bluePyrs,  weightGaussPyrs, width, height, levels)
         val base = frames.minByOrNull { abs(it.evOffset) } ?: frames[0]
 
         return LeicaResult.Success(
@@ -74,14 +92,45 @@ class MertensFallback {
     }
 
     /**
-     * Blend multiple frames' single channel using Laplacian pyramid.
+     * Build a full Gaussian pyramid for [src] with [levels] levels.
+     *
+     * Level 0 = original resolution, level k = 1/(2^k) resolution.
+     * Returns a list of FloatArrays, one per level.
      */
-    private fun pyramidBlend(
-        channels: List<FloatArray>,
-        weights: Array<FloatArray>,
+    private fun buildGaussianPyramid(
+        src: FloatArray, w: Int, h: Int, levels: Int,
+    ): List<FloatArray> {
+        val pyr = ArrayList<FloatArray>(levels + 1)
+        pyr.add(src)
+        var cur = src; var cw = w; var ch = h
+        repeat(levels) {
+            val blurred = gaussianBlur5(cur, cw, ch)
+            val dw = (cw + 1) / 2; val dh = (ch + 1) / 2
+            cur = FloatArray(dw * dh) { i ->
+                val x = (i % dw) * 2; val y = (i / dw) * 2
+                blurred[y.coerceIn(0, ch - 1) * cw + x.coerceIn(0, cw - 1)]
+            }
+            pyr.add(cur)
+            cw = dw; ch = dh
+        }
+        return pyr
+    }
+
+    /**
+     * P2-14 fix: Blend [nFrames] channels using pre-built Gaussian pyramids.
+     *
+     * [channelPyrs] — one Gaussian pyramid per frame for one colour channel.
+     * [weightPyrs]  — one Gaussian pyramid per frame for the normalised weight.
+     *
+     * Laplacian level k = gaussPyr[k] − upsample(gaussPyr[k+1]).  This avoids
+     * rebuilding the Gaussian pyramid inside [laplacianLevel] for every frame
+     * and every channel.
+     */
+    private fun pyramidBlendFromPyramids(
+        channelPyrs: List<List<FloatArray>>,
+        weightPyrs: List<List<FloatArray>>,
         w: Int, h: Int, levels: Int,
     ): FloatArray {
-        // Build blended Laplacian pyramid
         val blendedPyr = Array(levels) { FloatArray(0) }
         val blendedDims = Array(levels) { Pair(0, 0) }
 
@@ -90,17 +139,21 @@ class MertensFallback {
             blendedDims[lvl] = Pair(lw, lh)
             val cur = FloatArray(lw * lh)
 
-            for (f in channels.indices) {
-                val lapLevel = laplacianLevel(channels[f], w, h, lvl)
-                val gaussWeight = gaussianLevel(weights[f], w, h, lvl)
+            val nw = levelDim(w, lvl + 1); val nh = levelDim(h, lvl + 1)
+
+            for (f in channelPyrs.indices) {
+                // Laplacian level = Gaussian(lvl) − upsample(Gaussian(lvl+1))
+                val gaussCur = channelPyrs[f][lvl]
+                val gaussNxt = channelPyrs[f][lvl + 1]
+                val upNxt = upsample2x(gaussNxt, nw, nh, lw, lh)
+                val gaussWeight = weightPyrs[f][lvl]
                 for (i in 0 until lw * lh) {
-                    cur[i] += lapLevel[i] * gaussWeight[i]
+                    cur[i] += (gaussCur[i] - upNxt[i]) * gaussWeight[i]
                 }
             }
             blendedPyr[lvl] = cur
         }
 
-        // Step 4: collapse pyramid back to full resolution
         return collapsePyramid(blendedPyr, blendedDims)
     }
 
