@@ -35,6 +35,16 @@ class SharedPreferencesCameraStore @Inject constructor(
                 prefs.getString(KEY_AWB_MODE, UserAwbMode.ADVANCE.name) ?: UserAwbMode.ADVANCE.name,
             )
         }.getOrDefault(UserAwbMode.ADVANCE)
+        val flashMode = runCatching {
+            FlashMode.valueOf(
+                prefs.getString(KEY_FLASH_MODE, FlashMode.OFF.name) ?: FlashMode.OFF.name,
+            )
+        }.getOrDefault(FlashMode.OFF)
+        val cameraFacing = runCatching {
+            CameraFacing.valueOf(
+                prefs.getString(KEY_CAMERA_FACING, CameraFacing.BACK.name) ?: CameraFacing.BACK.name,
+            )
+        }.getOrDefault(CameraFacing.BACK)
         return CameraPreferences(
             grid = GridPreferences(
                 style = style,
@@ -43,6 +53,9 @@ class SharedPreferencesCameraStore @Inject constructor(
             ),
             hdr = HdrPreferences(mode = hdrMode),
             awb = AwbPreferences(mode = awbMode),
+            flashMode = flashMode,
+            currentZoom = prefs.getFloat(KEY_CURRENT_ZOOM, 1f),
+            cameraFacing = cameraFacing,
         )
     }
 
@@ -53,7 +66,10 @@ class SharedPreferencesCameraStore @Inject constructor(
             .putBoolean(KEY_HORIZON_GUIDE, preferences.grid.showHorizonGuide)
             .putString(KEY_HDR_MODE, preferences.hdr.mode.name)
             .putString(KEY_AWB_MODE, preferences.awb.mode.name)
-            .apply()
+            .putString(KEY_FLASH_MODE, preferences.flashMode.name)
+            .putFloat(KEY_CURRENT_ZOOM, preferences.currentZoom)
+            .putString(KEY_CAMERA_FACING, preferences.cameraFacing.name)
+            .commit()
     }
 
     private companion object {
@@ -63,5 +79,8 @@ class SharedPreferencesCameraStore @Inject constructor(
         const val KEY_HORIZON_GUIDE = "grid.horizon_guide"
         const val KEY_HDR_MODE = "hdr.mode"
         const val KEY_AWB_MODE = "awb.mode"
+        const val KEY_FLASH_MODE = "flash.mode"
+        const val KEY_CURRENT_ZOOM = "zoom.current"
+        const val KEY_CAMERA_FACING = "camera.facing"
     }
 }

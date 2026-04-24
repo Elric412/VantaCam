@@ -2,6 +2,8 @@ package com.leica.cam.sensor_hal.session
 
 import android.hardware.camera2.CameraAccessException
 import com.leica.cam.common.Logger
+import com.leica.cam.common.result.LeicaResult
+import com.leica.cam.common.result.PipelineStage
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -36,23 +38,25 @@ class CameraSessionManager(
         }
     }
 
-    suspend fun capture() {
+    suspend fun capture(): LeicaResult<Unit> {
         mutex.withLock {
             if (stateMachine.currentState() != CameraSessionState.IDLE) {
                 Logger.d(TAG, "capture ignored because state=${stateMachine.currentState()}")
-                return
+                return LeicaResult.Failure.Pipeline(PipelineStage.SESSION, "Capture requested in non-idle session state")
             }
 
             stateMachine.transition(CameraSessionEvent.CAPTURE_REQUESTED)
             stateMachine.transition(CameraSessionEvent.CAPTURE_STARTED)
-            runCatching { cameraController.capture() }
-                .onSuccess {
+            when (val captureResult = cameraController.capture()) {
+                is LeicaResult.Success -> {
                     stateMachine.transition(CameraSessionEvent.PROCESSING_COMPLETED)
+                    LeicaResult.Success(Unit)
                 }
-                .onFailure {
+                is LeicaResult.Failure -> {
                     stateMachine.transition(CameraSessionEvent.ERROR)
-                    throw it
+                    captureResult
                 }
+            }
         }
     }
 
@@ -109,7 +113,7 @@ interface CameraController {
     fun availableCameraIds(): List<String>
     suspend fun openCamera(cameraId: String)
     suspend fun configureSession(cameraId: String)
-    suspend fun capture()
+    suspend fun capture(): LeicaResult<Unit>
     suspend fun closeCamera()
 }
 

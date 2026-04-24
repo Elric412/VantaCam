@@ -13,6 +13,9 @@ data class CameraPreferences(
     val grid: GridPreferences = GridPreferences(),
     val hdr: HdrPreferences = HdrPreferences(),
     val awb: AwbPreferences = AwbPreferences(),
+    val flashMode: FlashMode = FlashMode.OFF,
+    val currentZoom: Float = 1f,
+    val cameraFacing: CameraFacing = CameraFacing.BACK,
 )
 
 /** HDR override persisted from the settings surface. */
@@ -36,4 +39,25 @@ enum class GridStyle {
     OFF,
     RULE_OF_THIRDS,
     GOLDEN_RATIO,
+}
+
+enum class FlashMode {
+    OFF,
+    ON,
+    AUTO,
+    ;
+
+    fun next(): FlashMode = when (this) {
+        OFF -> ON
+        ON -> AUTO
+        AUTO -> OFF
+    }
+}
+
+enum class CameraFacing {
+    BACK,
+    FRONT,
+    ;
+
+    fun toggled(): CameraFacing = if (this == BACK) FRONT else BACK
 }

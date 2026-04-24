@@ -21,11 +21,15 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.lifecycle.LifecycleOwner
 import com.leica.cam.common.Logger
+import com.leica.cam.common.result.LeicaResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 /**
  * Concrete [CameraController] backed by CameraX + Camera2 interop.
@@ -42,7 +46,8 @@ class Camera2CameraController(
         appContext.getSystemService(Context.CAMERA_SERVICE) as CameraManager
 
     private val mainExecutor = appContext.mainExecutor
-    private val captureExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
+    @Volatile
+    private var captureExecutor: ExecutorService = Executors.newSingleThreadExecutor()
 
     @Volatile
     var previewView: PreviewView? = null
@@ -65,6 +70,10 @@ class Camera2CameraController(
 
     @Volatile
     private var requestState: CameraRequestControlState = CameraRequestControlState()
+    @Volatile
+    private var currentFlashMode: Int = ImageCapture.FLASH_MODE_OFF
+    @Volatile
+    private var currentCameraId: String? = null
 
     /** Attaches the active [PreviewView] and [LifecycleOwner] before opening the session. */
     fun attach(view: PreviewView, owner: LifecycleOwner) {
@@ -79,39 +88,49 @@ class Camera2CameraController(
                 emptyList()
             }
 
-    override suspend fun openCamera(cameraId: String) = withContext(Dispatchers.Main.immediate) {
-        val owner = requireNotNull(lifecycleOwner) {
-            "Camera2CameraController.attach() must be called before openCamera()"
-        }
-        val view = requireNotNull(previewView) { "PreviewView missing" }
+    override suspend fun openCamera(cameraId: String) {
+        val capabilities = withContext(Dispatchers.Default) { loadCapabilities(cameraId) }
+        val selector = withContext(Dispatchers.Default) { selectorForCameraId(cameraId) }
         val provider = awaitCameraProvider()
-        val capabilities = loadCapabilities(cameraId)
+        if (captureExecutor.isShutdown) {
+            captureExecutor = Executors.newSingleThreadExecutor()
+        }
 
-        val preview = Preview.Builder()
-            .build()
-            .also { it.setSurfaceProvider(view.surfaceProvider) }
+        withContext(Dispatchers.Main.immediate) {
+            val owner = requireNotNull(lifecycleOwner) {
+                "Camera2CameraController.attach() must be called before openCamera()"
+            }
+            val view = requireNotNull(previewView) { "PreviewView missing" }
+            val preview = Preview.Builder()
+                .build()
+                .also { it.setSurfaceProvider(view.surfaceProvider) }
 
-        val capture = ImageCapture.Builder()
-            .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
-            .setFlashMode(ImageCapture.FLASH_MODE_OFF)
-            .build()
+            val capture = ImageCapture.Builder()
+                .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+                .setFlashMode(currentFlashMode)
+                .build()
 
-        provider.unbindAll()
-        val camera = provider.bindToLifecycle(owner, selectorForCameraId(cameraId), preview, capture)
+            provider.unbindAll()
+            val camera = provider.bindToLifecycle(owner, selector, preview, capture)
 
-        cameraProvider = provider
-        imageCapture = capture
-        boundCamera = camera
-        runtimeCapabilities = capabilities
-        applyCurrentRequestState()
+            cameraProvider = provider
+            imageCapture = capture
+            boundCamera = camera
+            runtimeCapabilities = capabilities
+            currentCameraId = cameraId
+            applyCurrentRequestState()
+        }
     }
 
     override suspend fun configureSession(cameraId: String) {
         Logger.d(TAG, "Session configured via CameraX bindToLifecycle for cameraId=$cameraId")
     }
 
-    override suspend fun capture() = withContext(Dispatchers.Main.immediate) {
-        val capture = imageCapture ?: error("imageCapture not initialised")
+    override suspend fun capture(): LeicaResult<Unit> = withContext(Dispatchers.Main.immediate) {
+        val capture = imageCapture ?: return@withContext LeicaResult.Failure.Hardware(
+            errorCode = ImageCapture.ERROR_CAMERA_CLOSED,
+            message = "imageCapture not initialised",
+        )
         suspendCancellableCoroutine { continuation ->
             capture.takePicture(
                 buildOutputOptions(),
@@ -119,12 +138,19 @@ class Camera2CameraController(
                 object : ImageCapture.OnImageSavedCallback {
                     override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
                         Logger.i(TAG, "Capture saved: ${outputFileResults.savedUri ?: "pending_media_store_uri"}")
-                        if (continuation.isActive) continuation.resume(Unit)
+                        if (continuation.isActive) continuation.resume(LeicaResult.Success(Unit))
                     }
 
                     override fun onError(exception: ImageCaptureException) {
                         Logger.e(TAG, "Capture failed: ${exception.imageCaptureError}", exception)
-                        if (continuation.isActive) continuation.resumeWithException(exception)
+                        if (continuation.isActive) {
+                            continuation.resume(
+                                LeicaResult.Failure.Hardware(
+                                    errorCode = exception.imageCaptureError,
+                                    message = exception.message ?: "Capture failed",
+                                ),
+                            )
+                        }
                     }
                 },
             )
@@ -137,6 +163,9 @@ class Camera2CameraController(
         imageCapture = null
         boundCamera = null
         runtimeCapabilities = CameraRuntimeCapabilities()
+        currentCameraId = null
+        captureExecutor.shutdown()
+        runCatching { captureExecutor.awaitTermination(2, TimeUnit.SECONDS) }
         Unit
     }
 
@@ -170,6 +199,29 @@ class Camera2CameraController(
     fun resetToAuto() {
         requestState = CameraRequestControlState()
         applyCurrentRequestState()
+    }
+
+    fun setFlashMode(flashMode: CaptureFlashMode) {
+        currentFlashMode = flashMode.toCameraX()
+        imageCapture?.flashMode = currentFlashMode
+    }
+
+    fun setZoomRatio(zoomRatio: Float) {
+        boundCamera?.cameraControl?.setZoomRatio(zoomRatio.coerceAtLeast(1f))
+    }
+
+    suspend fun switchCameraFacing(useFrontCamera: Boolean): LeicaResult<Unit> {
+        val targetFacing = if (useFrontCamera) {
+            CameraCharacteristics.LENS_FACING_FRONT
+        } else {
+            CameraCharacteristics.LENS_FACING_BACK
+        }
+        val targetCameraId = withContext(Dispatchers.Default) { findCameraIdByFacing(targetFacing) }
+            ?: return LeicaResult.Failure.Hardware(message = "No camera found for facing=${if (useFrontCamera) "front" else "back"}")
+
+        closeCamera()
+        openCamera(targetCameraId)
+        return LeicaResult.Success(Unit)
     }
 
     private fun applyCurrentRequestState() {
@@ -275,9 +327,30 @@ class Camera2CameraController(
         }
     }
 
+    private fun findCameraIdByFacing(facing: Int): String? {
+        return cameraManager.cameraIdList.firstOrNull { id ->
+            runCatching {
+                cameraManager.getCameraCharacteristics(id).get(CameraCharacteristics.LENS_FACING) == facing
+            }.getOrDefault(false)
+        }
+    }
+
     private companion object {
         private const val TAG = "Camera2CameraController"
         private const val NANOS_PER_MICROSECOND = 1_000L
+    }
+}
+
+enum class CaptureFlashMode {
+    OFF,
+    ON,
+    AUTO,
+    ;
+
+    fun toCameraX(): Int = when (this) {
+        OFF -> ImageCapture.FLASH_MODE_OFF
+        ON -> ImageCapture.FLASH_MODE_ON
+        AUTO -> ImageCapture.FLASH_MODE_AUTO
     }
 }
 
