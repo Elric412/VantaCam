@@ -28,7 +28,8 @@
     <application
         android:name=".LeicaCamApp"
         android:allowBackup="false"
-        android:icon="@android:drawable/ic_menu_camera"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:label="LeicaCam"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen"
