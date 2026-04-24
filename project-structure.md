@@ -1,15 +1,17 @@
 # Project Structure — LeicaCam
 
-_Last updated: 2026-04-23 (UTC) after the P0–P3 repair pass._
+_Last updated: 2026-04-24 (UTC) — updated after icon integration, P5 UI-wiring pass, and P0 verification._
 
-This document is the repository map for the current LeicaCam tree. It reflects the repaired state where:
+This document is the authoritative repository map for the current LeicaCam tree. It reflects the current state where:
 
-- `app/src/main/kotlin/com/leica/cam/di/AssetsModule.kt` is gone.
-- `:ai-engine:api` owns the shared AI contracts used by other modules.
-- `ImagingPipeline` now routes HDR through `hdr/ProXdrOrchestrator`.
-- `pipeline/ProXdrHdrEngine.kt` is deleted.
-- LiteRT and MediaPipe are direct dependencies of `:ai-engine:impl`.
-- Reflection remains only in `VendorDelegateLoader` for vendor-only delegates.
+- `app/src/main/res/mipmap-*/ic_launcher*.png` now carries the real Leica Cam brand icons (mdpi → xxxhdpi, square + round variants).
+- `android:icon` / `android:roundIcon` in `AndroidManifest.xml` point to `@mipmap/ic_launcher` / `@mipmap/ic_launcher_round`.
+- `app/src/main/kotlin/com/leica/cam/di/AssetsModule.kt` is **gone**; the canonical `@Named("assetBytes")` provider lives in `:ai-engine:impl`.
+- `:ai-engine:api` owns all shared AI contracts (`AiNeuralPredictions.kt`, `AiContracts.kt`, `AiInterfaces.kt`, `AiModels.kt`).
+- `ImagingPipeline` routes HDR through `hdr/ProXdrOrchestrator`. `pipeline/ProXdrHdrEngine.kt` is **deleted**.
+- LiteRT and MediaPipe are direct dependencies of `:ai-engine:impl`. No impl→impl imports remain.
+- `CameraScreen.kt` Flash and HDR buttons now visually reflect the current mode with animated icon + tint transitions.
+- `ModelRegistry` reads from Android `AssetManager`; the `fromAssets(...)` companion factory is the canonical entry point.
 
 If code and this file diverge, update this file.
 
@@ -17,7 +19,7 @@ If code and this file diverge, update this file.
 
 ## 1. Executive Snapshot
 
-LeicaCam is a multi-module Android computational-photography stack built around strict `api` / `impl` boundaries.
+LeicaCam is a multi-module Android computational-photography stack built around strict `api` / `impl` boundaries and the **LUMO** imaging platform.
 
 Core characteristics:
 
@@ -25,15 +27,17 @@ Core characteristics:
 - **Feature modules:** `:feature:camera`, `:feature:gallery`, `:feature:settings`
 - **Core engines:** AI, HDR / imaging pipeline, HyperTone WB, depth, face, motion, bokeh, neural ISP, smart imaging
 - **Platform/shared layers:** `:common`, `:hardware-contracts`, `:sensor-hal`, `:gpu-compute`, `:native-imaging-core`, `:ui-components`
-- **Native path:** JNI-backed runtime under `platform-android/native-imaging-core/impl`
-- **On-device ML:** LiteRT + MediaPipe in `engines/ai-engine/impl`
+- **Native path:** JNI-backed runtime under `platform-android/native-imaging-core/impl` with C++17 source in `impl/src/main/cpp`
+- **On-device ML:** LiteRT 1.0.1 + MediaPipe tasks-vision 0.10.14 in `engines/ai-engine/impl`
+- **Brand assets:** Leica Cam icons (mdpi/hdpi/xhdpi/xxhdpi/xxxhdpi) in `app/src/main/res/mipmap-*/`
 
-Repository rules that matter for this repaired state:
+Repository rules that matter:
 
 - `:xyz:impl` depends on its own `:api` plus other modules' `:api`, never another engine's `:impl`.
 - Hilt graph contributors must be on the `:app` classpath.
 - `CancellationException` / `InterruptedException` must not be swallowed.
 - Shared contracts used across engines live in API modules, not implementation packages.
+- Every fallible function returns `LeicaResult<T>`, never throws.
 
 ---
 
@@ -41,57 +45,81 @@ Repository rules that matter for this repaired state:
 
 ```text
 /
-├── app/                         Android app shell (Application + Activity + nav)
+├── app/                         Android app shell (Application + Activity + nav + brand icons)
 ├── features/                    User-facing camera / gallery / settings flows
 ├── core/                        Camera core, color science, lens model, photon matrix
-├── engines/                     AI, HDR pipeline, HyperTone WB, depth, face, motion, etc.
+├── engines/                     AI, HDR pipeline, HyperTone WB, depth, face, motion, bokeh, neural-ISP, smart-imaging
 ├── platform/                    Pure Kotlin shared contracts and result/error types
-├── platform-android/            Android-specific runtime / GPU / Camera2 / JNI modules
-├── Model/                       Source model assets copied into app assets at build time
-├── build-logic/                 Convention plugins
-├── Plan.md                      Repair / upgrade execution plan
-├── Problems list.md             Defect source of truth used for the repair pass
+├── platform-android/            Android-specific runtime / GPU / Camera2 / JNI / UI modules
+├── Model/                       Source model assets; copied into app/src/main/assets/models/ at build time
+├── build-logic/                 Convention plugins (Gradle Kotlin DSL)
+├── Plan.md                      Staged repair / upgrade plan (P0–P6 + P-DOCS)
+├── Problems list.md             Defect inventory used for the repair passes
+├── Implementation.md            Historical implementation notes
+├── changelog.md                 Change log
 └── project-structure.md         This file
 ```
 
 ### `app/`
 
-- `LeicaCamApp.kt` — `@HiltAndroidApp`; warms all discovered AI models using `ModelRegistry.warmUpAll(...)`
-- `MainActivity.kt` — navigation host / Compose entry point
-- No local `AssetsModule.kt` remains; the canonical `assetBytes` provider lives in `:ai-engine:impl`
+```text
+app/
+├── build.gradle.kts             Engine impl deps for Hilt aggregation + model copy task
+├── src/main/
+│   ├── AndroidManifest.xml      Uses @mipmap/ic_launcher, @mipmap/ic_launcher_round
+│   ├── kotlin/com/leica/cam/
+│   │   ├── LeicaCamApp.kt       @HiltAndroidApp; warms AI models via ModelRegistry.warmUpAll
+│   │   └── MainActivity.kt      Compose navigation host
+│   └── res/
+│       ├── drawable/
+│       │   └── ic_launcher_playstore.png   512×512 Play Store artwork
+│       ├── mipmap-mdpi/         ic_launcher.png (48×48), ic_launcher_round.png
+│       ├── mipmap-hdpi/         ic_launcher.png (72×72), ic_launcher_round.png
+│       ├── mipmap-xhdpi/        ic_launcher.png (96×96), ic_launcher_round.png
+│       ├── mipmap-xxhdpi/       ic_launcher.png (144×144), ic_launcher_round.png
+│       └── mipmap-xxxhdpi/      ic_launcher.png (192×192), ic_launcher_round.png
+```
+
+No `di/AssetsModule.kt` — deleted; the `@Named("assetBytes")` provider is in `:ai-engine:impl`.
 
 ### `features/`
 
-- `camera/` — preview, controls, capture UI, runtime facade
-- `gallery/` — gallery UI and metadata presentation
-- `settings/` — settings UI plus preferences repository/store
+- `camera/` — preview, permissions, capture controls, session command bus, camera UI, UI orchestrator
+  - Key UI file: `CameraScreen.kt` — Flash icon cycles OFF→ON→AUTO with animated tint; HDR badge cycles OFF→ON→SMART→PRO with mode label
+- `gallery/` — gallery UI, metadata presentation
+- `settings/` — preferences repository, SharedPreferences store, settings screens
 
 ### `core/`
 
-- `camera-core/` — camera-core contracts and implementation glue
-- `color-science/` — color rendering pipeline pieces
-- `lens-model/` — lens calibration / correction data
-- `photon-matrix/` — fused photon buffer contracts and implementation
+- `camera-core/` — Camera2 session configurator, ISP optimizer, chipset detector
+- `color-science/` — color rendering pipeline engines and models
+- `lens-model/` — lens calibration data, distortion correction suite
+- `photon-matrix/` — fused photon buffer contracts, assembler/ingestor, Gr/Gb correction
 
 ### `engines/`
 
-- `ai-engine/` — shared AI contracts in `api`, live LiteRT/MediaPipe runners in `impl`
+- `ai-engine/` — shared AI contracts in `api`; live LiteRT/MediaPipe runners in `impl`
 - `imaging-pipeline/` — HDR, tone-map, merge, metadata, computational pipeline
-- `hypertone-wb/` — white-balance engines and supporting models
-- `depth-engine/`, `face-engine/`, `motion-engine/`, `bokeh-engine/`, `neural-isp/`, `smart-imaging/`
+- `hypertone-wb/` — white-balance engines (HyperToneWB2, mixed-light, Robertson CCT, skin-zone guard)
+- `depth-engine/` — MiDaS depth estimation contracts and fusion
+- `face-engine/` — face engine contracts and pipeline implementation
+- `motion-engine/` — raw frame alignment / motion contracts
+- `bokeh-engine/` — synthetic aperture / CoC bokeh orchestrator (P6 implementation pending)
+- `neural-isp/` — neural ISP pipeline stages (MicroISP tile refinement wiring through `:ai-engine:api`)
+- `smart-imaging/` — smart imaging orchestrator
 
 ### `platform/`
 
-- `common/` — `LeicaResult`, `PipelineStage`, `ThermalState`, logging helpers, shared primitives
-- `hardware-contracts/` — canonical photon / sensor / GPU / NPU contracts
+- `common/` — `LeicaResult`, `PipelineStage`, `ThermalState`, `LeicaLogger`, coroutine scope helpers, shared primitives
+- `hardware-contracts/` — canonical photon / sensor / GPU / NPU / lens spec contracts
 - `common-test/` — shared test fixtures
 
 ### `platform-android/`
 
-- `sensor-hal/` — Camera2 / CameraX integration, ZSL buffer, session manager
-- `gpu-compute/` — Vulkan / OpenGL / CPU compute backends
-- `native-imaging-core/` — Kotlin orchestrator + C++ runtime bridge
-- `ui-components/` — shared Android UI components
+- `sensor-hal/` — Camera2 / CameraX integration, ZSL ring buffer, session state machine, AF, metering, sensor profiles
+- `gpu-compute/` — Vulkan / OpenGL ES / CPU compute backends, shader registry, Vulkan pipeline
+- `native-imaging-core/` — Kotlin orchestrator (`ImagingRuntimeOrchestrator`) + C++ runtime bridge (`NativeImagingBridge`)
+- `ui-components/` — Leica design system (tokens, theme, typography, spacing, motion, haptics, camera components, dial sheet)
 
 ---
 
@@ -101,46 +129,60 @@ Source of truth: `settings.gradle.kts`
 
 ### App + features
 
-- `:app`
-- `:feature:camera`
-- `:feature:gallery`
-- `:feature:settings`
+| Module | Dir |
+|--------|-----|
+| `:app` | `app/` |
+| `:feature:camera` | `features/camera` |
+| `:feature:gallery` | `features/gallery` |
+| `:feature:settings` | `features/settings` |
 
 ### Core modules
 
-- `:camera-core:api`, `:camera-core:impl`
-- `:color-science:api`, `:color-science:impl`
-- `:photon-matrix:api`, `:photon-matrix:impl`
-- `:lens-model`
+| Module | Dir |
+|--------|-----|
+| `:camera-core:api` | `core/camera-core/api` |
+| `:camera-core:impl` | `core/camera-core/impl` |
+| `:color-science:api` | `core/color-science/api` |
+| `:color-science:impl` | `core/color-science/impl` |
+| `:photon-matrix:api` | `core/photon-matrix/api` |
+| `:photon-matrix:impl` | `core/photon-matrix/impl` |
+| `:lens-model` | `core/lens-model` |
 
 ### Imaging / AI engine modules
 
-- `:imaging-pipeline:api`, `:imaging-pipeline:impl`
-- `:hypertone-wb:api`, `:hypertone-wb:impl`
-- `:ai-engine:api`, `:ai-engine:impl`
-- `:depth-engine:api`, `:depth-engine:impl`
-- `:face-engine:api`, `:face-engine:impl`
-- `:neural-isp:api`, `:neural-isp:impl`
-- `:smart-imaging:api`, `:smart-imaging:impl`
-- `:bokeh-engine:api`, `:bokeh-engine:impl`
-- `:motion-engine:api`, `:motion-engine:impl`
+| Module | Dir |
+|--------|-----|
+| `:imaging-pipeline:api` | `engines/imaging-pipeline/api` |
+| `:imaging-pipeline:impl` | `engines/imaging-pipeline/impl` |
+| `:hypertone-wb:api` | `engines/hypertone-wb/api` |
+| `:hypertone-wb:impl` | `engines/hypertone-wb/impl` |
+| `:ai-engine:api` | `engines/ai-engine/api` |
+| `:ai-engine:impl` | `engines/ai-engine/impl` |
+| `:depth-engine:api` | `engines/depth-engine/api` |
+| `:depth-engine:impl` | `engines/depth-engine/impl` |
+| `:face-engine:api` | `engines/face-engine/api` |
+| `:face-engine:impl` | `engines/face-engine/impl` |
+| `:neural-isp:api` | `engines/neural-isp/api` |
+| `:neural-isp:impl` | `engines/neural-isp/impl` |
+| `:smart-imaging:api` | `engines/smart-imaging/api` |
+| `:smart-imaging:impl` | `engines/smart-imaging/impl` |
+| `:bokeh-engine:api` | `engines/bokeh-engine/api` |
+| `:bokeh-engine:impl` | `engines/bokeh-engine/impl` |
+| `:motion-engine:api` | `engines/motion-engine/api` |
+| `:motion-engine:impl` | `engines/motion-engine/impl` |
 
 ### Platform / shared modules
 
-- `:native-imaging-core:api`, `:native-imaging-core:impl`
-- `:sensor-hal`
-- `:gpu-compute`
-- `:ui-components`
-- `:common`
-- `:common-test`
-- `:hardware-contracts`
-
-### Repair-pass dependency changes to note
-
-- `:app` now includes the engine impl modules required for Hilt aggregation.
-- `:imaging-pipeline:impl` depends on `:ai-engine:api`, not `:ai-engine:impl`.
-- `:hypertone-wb:impl` consumes `AwbPredictor` / `AwbNeuralPrior` from `:ai-engine:api`.
-- `:ai-engine:impl` has direct LiteRT and MediaPipe dependencies.
+| Module | Dir |
+|--------|-----|
+| `:native-imaging-core:api` | `platform-android/native-imaging-core/api` |
+| `:native-imaging-core:impl` | `platform-android/native-imaging-core/impl` |
+| `:sensor-hal` | `platform-android/sensor-hal` |
+| `:gpu-compute` | `platform-android/gpu-compute` |
+| `:ui-components` | `platform-android/ui-components` |
+| `:common` | `platform/common` |
+| `:common-test` | `platform/common-test` |
+| `:hardware-contracts` | `platform/hardware-contracts` |
 
 ---
 
@@ -149,8 +191,13 @@ Source of truth: `settings.gradle.kts`
 ```text
 :app
 ├── :feature:camera / :feature:gallery / :feature:settings
-├── engine impl modules for Hilt aggregation
-└── ui shell
+├── engine impl modules (Hilt aggregation — all listed in app/build.gradle.kts)
+│   :ai-engine:impl, :imaging-pipeline:impl, :hypertone-wb:impl,
+│   :color-science:impl, :depth-engine:impl, :face-engine:impl,
+│   :neural-isp:impl, :photon-matrix:impl, :smart-imaging:impl,
+│   :bokeh-engine:impl, :motion-engine:impl, :native-imaging-core:impl,
+│   :camera-core:impl
+└── ui shell (:ui-components, navigation, Hilt)
 
 :feature:camera
 ├── :ai-engine:api
@@ -158,32 +205,35 @@ Source of truth: `settings.gradle.kts`
 ├── :hypertone-wb:api
 ├── :sensor-hal
 ├── :native-imaging-core:api
+├── :ui-components
 └── other engine APIs
 
 :ai-engine:impl
 ├── :ai-engine:api
 ├── :common
-├── LiteRT / MediaPipe SDKs
-└── Hilt bindings for AI runners and ModelRegistry
+├── :photon-matrix:api
+├── LiteRT 1.0.1 (litert, litert-gpu, litert-support)
+├── MediaPipe tasks-vision 0.10.14
+└── Hilt bindings for all 5 AI runners + ModelRegistry
 
 :imaging-pipeline:impl
 ├── :imaging-pipeline:api
-├── :ai-engine:api
+├── :ai-engine:api          ← receives NeuralIspRefiner + SemanticSegmenter contracts
 ├── :common
-└── live HDR path through hdr/ProXdrOrchestrator
+└── live HDR path via hdr/ProXdrOrchestrator
 
 :hypertone-wb:impl
 ├── :hypertone-wb:api
-├── :ai-engine:api
-├── :common
-└── uses AwbPredictor contract only
+├── :ai-engine:api          ← receives AwbPredictor contract only
+└── :common
 ```
 
-Architecturally important repaired links:
+Architecturally important wiring:
 
-- `ImagingPipeline` now receives `NeuralIspRefiner` and `SemanticSegmenter` from `:ai-engine:api`.
-- `HyperToneWhiteBalanceEngine` now receives `AwbPredictor` from `:ai-engine:api`.
+- `ImagingPipeline` receives `NeuralIspRefiner` and `SemanticSegmenter` from `:ai-engine:api`.
+- `HyperToneWhiteBalanceEngine` receives `AwbPredictor` from `:ai-engine:api`.
 - `AiEngineOrchestrator` depends on `SceneClassifier`, `SemanticSegmenter`, and `FaceLandmarker` contracts.
+- **Zero** `:impl` → `:impl` cross-module imports remain.
 
 ---
 
@@ -191,38 +241,39 @@ Architecturally important repaired links:
 
 ```text
 Shutter / capture request
-  → sensor-hal (Camera2 / CameraX / ZSL)
-  → native-imaging-core (runtime bridge when native path is used)
-  → photon-matrix fusion / fused buffer contracts
-  → ai-engine (scene / segmentation / face inference contracts and runners)
+  → sensor-hal (Camera2CameraController / CameraSessionManager / ZSL ring buffer)
+  → native-imaging-core (ImagingRuntimeOrchestrator → NativeImagingBridge JNI)
+  → photon-matrix fusion (FusedPhotonBuffer from multi-sensor frames)
+  → ai-engine (AiEngineOrchestrator — concurrent SceneClassifier + SemanticSegmenter + FaceLandmarker)
   → imaging-pipeline
        1. ProXdrOrchestrator
-          - ghost mask
-          - deformable alignment
-          - radiance merge / Mertens fallback
-       2. ShadowDenoiseEngine
-       3. optional MicroISP tile refinement
-       4. optional semantic auto-segmentation
-       5. Durand bilateral tone mapping
-       6. Cinematic S-curve
-       7. Luminosity sharpening
-  → HyperTone WB / color science / metadata / output paths
+          a. BracketSelector (ZSL / EV bracket selection)
+          b. GhostMaskEngine (pre-alignment ghost detection)
+          c. DeformableFeatureAligner (dense optical flow alignment)
+          d. RadianceMerger (Wiener burst / Debevec EV merge)
+          e. MertensFallback (single-frame SDR path)
+       2. ShadowDenoiseEngine (FFDNet-style shadow denoising)
+       3. optional MicroISP tile refinement (NeuralIspRefiner — ultra-wide / front only)
+       4. optional semantic auto-segmentation (SemanticSegmenter → SemanticMask)
+       5. DurandBilateralToneMappingEngine
+       6. CinematicSCurveEngine
+       7. LuminositySharpener
+       8. AcesToneMapper (P2 — when PRO_XDR mode active)
+  → HyperToneWhiteBalanceEngine (AwbPredictor neural priors + CCM + mixed-light fusion)
+  → color-science / metadata composers (DNG, HEIC, XMP, EXIF)
+  → output
 ```
 
-### Live HDR path
+### Live HDR entry point
 
-The live HDR entry point is now:
+`engines/imaging-pipeline/impl/.../hdr/ProXdrOrchestrator.kt`
 
-- `engines/imaging-pipeline/impl/.../hdr/ProXdrOrchestrator.kt`
+The old `pipeline/ProXdrHdrEngine.kt` is **deleted** — it no longer exists in the tree.
 
-The deleted legacy path is no longer part of the tree:
+### Thermal state
 
-- `pipeline/ProXdrHdrEngine.kt` — removed in the repair pass
-
-### Thermal state source of truth
-
-- `platform/common/.../ThermalState.kt` is canonical.
-- HDR and runtime thermal gating use this shared enum.
+`platform/common/src/main/kotlin/com/leica/cam/common/ThermalState.kt` is canonical.
+HDR and runtime thermal gating use this shared enum.
 
 ---
 
@@ -230,55 +281,63 @@ The deleted legacy path is no longer part of the tree:
 
 ### App-level Hilt aggregation
 
-`app/build.gradle.kts` now includes the engine impl modules so Hilt can see all `@Module` contributors.
+`app/build.gradle.kts` includes all engine `:impl` modules so Hilt can discover every `@Module` contributor.
 
 ### Canonical DI modules
 
-- `engines/ai-engine/impl/.../di/AiEngineModule.kt`
-- `engines/imaging-pipeline/impl/.../di/ImagingPipelineModule.kt`
-- `engines/hypertone-wb/impl/.../di/HypertoneWbModule.kt`
-- `core/camera-core/impl/.../di/CameraCoreModule.kt`
-- `core/color-science/impl/.../di/ColorScienceModule.kt`
-- `engines/depth-engine/impl/.../di/DepthEngineModule.kt`
-- `engines/face-engine/impl/.../di/FaceEngineModule.kt`
-- `engines/neural-isp/impl/.../di/NeuralIspModule.kt`
-- `engines/bokeh-engine/impl/.../di/BokehEngineModule.kt`
-- `platform-android/gpu-compute/.../di/GpuComputeModule.kt`
-- `features/camera/.../di/FeatureCameraModule.kt`
-- `features/gallery/.../di/FeatureGalleryModule.kt`
-- `features/settings/.../di/FeatureSettingsModule.kt`
+| Module | File |
+|--------|------|
+| `AiEngineModule` | `engines/ai-engine/impl/.../di/AiEngineModule.kt` |
+| `ImagingPipelineModule` | `engines/imaging-pipeline/impl/.../di/ImagingPipelineModule.kt` |
+| `HypertoneWbModule` | `engines/hypertone-wb/impl/.../di/HypertoneWbModule.kt` |
+| `CameraCoreModule` | `core/camera-core/impl/.../di/CameraCoreModule.kt` |
+| `ColorScienceModule` | `core/color-science/impl/.../di/ColorScienceModule.kt` |
+| `DepthEngineModule` | `engines/depth-engine/impl/.../di/DepthEngineModule.kt` |
+| `FaceEngineModule` | `engines/face-engine/impl/.../di/FaceEngineModule.kt` |
+| `NeuralIspModule` | `engines/neural-isp/impl/.../di/NeuralIspModule.kt` |
+| `BokehEngineModule` | `engines/bokeh-engine/impl/.../di/BokehEngineModule.kt` |
+| `MotionEngineModule` | `engines/motion-engine/impl/.../di/MotionEngineModule.kt` |
+| `GpuComputeModule` | `platform-android/gpu-compute/.../di/GpuComputeModule.kt` |
+| `SensorHalModule` | `platform-android/sensor-hal/.../di/SensorHalModule.kt` |
+| `FeatureCameraModule` | `features/camera/.../di/FeatureCameraModule.kt` |
+| `FeatureGalleryModule` | `features/gallery/.../di/FeatureGalleryModule.kt` |
+| `FeatureSettingsModule` | `features/settings/.../di/FeatureSettingsModule.kt` |
+| `UiComponentsModule` | `platform-android/ui-components/.../di/UiComponentsModule.kt` |
 
 ### AI DI details
 
 `AiEngineModule` provides:
 
-- `ModelRegistry` via `ModelRegistry.fromAssets(...)`
-- `@Named("assetBytes")` asset loader
-- interface bindings:
-  - `AwbPredictor`
-  - `NeuralIspRefiner`
-  - `SemanticSegmenter`
-  - `SceneClassifier`
-  - `FaceLandmarker`
-  - `IAiEngine`
+- `ModelRegistry` via `ModelRegistry.fromAssets(context.assets, logger)`
+- `@Named("assetBytes")` — `(path: String) -> ByteBuffer` from `context.assets.open(path)`
+- Interface bindings:
+  - `AwbPredictor` ← `AwbModelRunner`
+  - `NeuralIspRefiner` ← `MicroIspRunner`
+  - `SemanticSegmenter` ← `SemanticSegmenterRunner`
+  - `SceneClassifier` ← `SceneClassifierRunner`
+  - `FaceLandmarker` ← `FaceLandmarkerRunner`
+  - `IAiEngine` ← `AiEngineOrchestrator`
 
 ### Imaging DI details
 
-`ImagingPipelineModule` provides:
+`ImagingPipelineModule` provides (among others):
 
 - `ProXdrOrchestrator`
 - `DurandBilateralToneMappingEngine`
 - `CinematicSCurveEngine`
 - `ShadowDenoiseEngine`
 - `LuminositySharpener`
-- compatibility `FfdNetNoiseReductionEngine`
-- `ImagingPipeline`
+- `FfdNetNoiseReductionEngine` (compatibility wrapper over `ShadowDenoiseEngine`)
+- `ImagingPipeline` (wired with `NeuralIspRefiner` + `SemanticSegmenter` from `:ai-engine:api`)
 - `ImagingPipelineOrchestrator`
+- `ComputationalModesOrchestrator` (portrait / astro / macro / night / seamless-zoom / super-res)
+- Various metadata composers and privacy log
 
 ### Settings DI details
 
-- `CameraPreferencesRepository` now uses constructor injection.
-- `FeatureSettingsModule` no longer duplicates repository construction.
+- `CameraPreferencesRepository @Inject constructor(store: SharedPreferencesCameraStore)` — singleton, `@Inject`-annotated.
+- `SharedPreferencesCameraStore @Inject constructor(@ApplicationContext context: Context)` — singleton.
+- Persists: `flashMode`, `hdr.mode`, `awb.mode`, `currentZoom`, `cameraFacing`, `grid.*`.
 
 ---
 
@@ -286,99 +345,238 @@ The deleted legacy path is no longer part of the tree:
 
 ### App shell
 
-- `app/src/main/kotlin/com/leica/cam/LeicaCamApp.kt`
-- `app/build.gradle.kts`
+```
+app/src/main/kotlin/com/leica/cam/LeicaCamApp.kt
+app/src/main/kotlin/com/leica/cam/MainActivity.kt
+app/build.gradle.kts
+app/src/main/AndroidManifest.xml
+app/src/main/res/mipmap-{mdpi,hdpi,xhdpi,xxhdpi,xxxhdpi}/ic_launcher.png
+app/src/main/res/mipmap-{mdpi,hdpi,xhdpi,xxhdpi,xxxhdpi}/ic_launcher_round.png
+app/src/main/res/drawable/ic_launcher_playstore.png
+```
 
 ### AI engine
 
-- `engines/ai-engine/api/src/main/kotlin/com/leica/cam/ai_engine/api/AiContracts.kt`
-- `engines/ai-engine/api/src/main/kotlin/com/leica/cam/ai_engine/api/AiInterfaces.kt`
-- `engines/ai-engine/api/src/main/kotlin/com/leica/cam/ai_engine/api/AiNeuralPredictions.kt`
-- `engines/ai-engine/impl/.../pipeline/AiEngineOrchestrator.kt`
-- `engines/ai-engine/impl/.../registry/ModelRegistry.kt`
-- `engines/ai-engine/impl/.../runtime/LiteRtSession.kt`
-- `engines/ai-engine/impl/.../runtime/VendorDelegateLoader.kt`
-- `engines/ai-engine/impl/.../models/AwbModelRunner.kt`
-- `engines/ai-engine/impl/.../models/SceneClassifierRunner.kt`
-- `engines/ai-engine/impl/.../models/SemanticSegmenterRunner.kt`
-- `engines/ai-engine/impl/.../models/MicroIspRunner.kt`
-- `engines/ai-engine/impl/.../models/FaceLandmarkerRunner.kt`
+```
+engines/ai-engine/api/.../AiContracts.kt         — SceneLabel enum, SceneAnalysis, QualityScore, IlluminantHint, TrackedObject
+engines/ai-engine/api/.../AiInterfaces.kt        — IAiEngine, CaptureMode
+engines/ai-engine/api/.../AiModels.kt            — model metadata types
+engines/ai-engine/api/.../AiNeuralPredictions.kt — AwbNeuralPrior, AwbPredictor, NeuralIspRefiner,
+                                                     SemanticSegmenter, SemanticSegmentationOutput,
+                                                     SemanticZoneCode, SceneClassifier, SceneClassificationOutput,
+                                                     FaceLandmarker, FaceLandmarkerOutput, FaceMesh, AssetBytesLoader
+engines/ai-engine/impl/.../pipeline/AiEngineOrchestrator.kt
+engines/ai-engine/impl/.../registry/ModelRegistry.kt   — fromAssets() companion factory, PipelineRole enum
+engines/ai-engine/impl/.../runtime/LiteRtSession.kt
+engines/ai-engine/impl/.../runtime/VendorDelegateLoader.kt  — only remaining reflective ML path
+engines/ai-engine/impl/.../runtime/DelegatePicker.kt
+engines/ai-engine/impl/.../models/AwbModelRunner.kt        — implements AwbPredictor
+engines/ai-engine/impl/.../models/SceneClassifierRunner.kt — implements SceneClassifier
+engines/ai-engine/impl/.../models/SemanticSegmenterRunner.kt — implements SemanticSegmenter
+engines/ai-engine/impl/.../models/MicroIspRunner.kt        — implements NeuralIspRefiner
+engines/ai-engine/impl/.../models/FaceLandmarkerRunner.kt  — implements FaceLandmarker (MediaPipe)
+```
 
 ### Imaging pipeline / HDR
 
-- `engines/imaging-pipeline/impl/.../pipeline/ImagingPipeline.kt`
-- `engines/imaging-pipeline/impl/.../hdr/ProXdrOrchestrator.kt`
-- `engines/imaging-pipeline/impl/.../hdr/MertensFallback.kt`
-- `engines/imaging-pipeline/impl/.../hdr/GhostMaskEngine.kt`
-- `engines/imaging-pipeline/impl/.../hdr/RadianceMerger.kt`
-- `engines/imaging-pipeline/impl/.../hdr/BracketSelector.kt`
+```
+engines/imaging-pipeline/api/.../ImagingPipelineContracts.kt
+engines/imaging-pipeline/api/.../UserHdrMode.kt            — OFF / ON / SMART / PRO_XDR
+engines/imaging-pipeline/api/.../pipeline/SemanticMask.kt
+engines/imaging-pipeline/impl/.../pipeline/ImagingPipeline.kt
+engines/imaging-pipeline/impl/.../hdr/ProXdrOrchestrator.kt    ← LIVE HDR ENTRY POINT
+engines/imaging-pipeline/impl/.../hdr/BracketSelector.kt
+engines/imaging-pipeline/impl/.../hdr/DeformableFeatureAligner.kt
+engines/imaging-pipeline/impl/.../hdr/GhostMaskEngine.kt
+engines/imaging-pipeline/impl/.../hdr/MertensFallback.kt
+engines/imaging-pipeline/impl/.../hdr/RadianceMerger.kt
+engines/imaging-pipeline/impl/.../hdr/HighlightReconstructor.kt
+engines/imaging-pipeline/impl/.../hdr/ShadowRestorer.kt
+engines/imaging-pipeline/impl/.../hdr/HdrTypes.kt
+engines/imaging-pipeline/impl/.../pipeline/AcesToneMapper.kt
+engines/imaging-pipeline/impl/.../pipeline/ComputationalModes.kt  — ComputationalModesOrchestrator
+engines/imaging-pipeline/impl/.../pipeline/FusionLM2Engine.kt
+engines/imaging-pipeline/impl/.../pipeline/MultiScaleFrameAligner.kt
+engines/imaging-pipeline/impl/.../pipeline/OutputMetadataPipeline.kt
+engines/imaging-pipeline/impl/.../pipeline/ToneLM2Engine.kt
+engines/imaging-pipeline/impl/.../pipeline/VideoPipeline.kt
+```
 
 ### HyperTone WB
 
-- `engines/hypertone-wb/impl/.../pipeline/HyperToneWhiteBalanceEngine.kt`
-- `engines/hypertone-wb/impl/.../pipeline/HyperToneWB2Engine.kt`
+```
+engines/hypertone-wb/impl/.../pipeline/HyperToneWhiteBalanceEngine.kt
+engines/hypertone-wb/impl/.../pipeline/HyperToneWB2Engine.kt
+engines/hypertone-wb/impl/.../pipeline/MultiModalIlluminantFusion.kt
+engines/hypertone-wb/impl/.../pipeline/MixedLightSpatialWbEngine.kt
+engines/hypertone-wb/impl/.../pipeline/RobertsonCctEstimator.kt
+engines/hypertone-wb/impl/.../pipeline/SkinZoneWbGuard.kt
+engines/hypertone-wb/impl/.../pipeline/WbTemporalMemory.kt
+engines/hypertone-wb/impl/.../pipeline/ColorTemperatureMath.kt
+engines/hypertone-wb/impl/.../pipeline/KelvinToCcmConverter.kt
+engines/hypertone-wb/impl/.../pipeline/IlluminantEstimators.kt
+engines/hypertone-wb/impl/.../pipeline/PartitionedCTSensor.kt
+```
 
-### Platform/runtime
+### Camera UI
 
-- `platform/common/src/main/kotlin/com/leica/cam/common/ThermalState.kt`
-- `platform-android/native-imaging-core/impl/.../ImagingRuntimeOrchestrator.kt`
-- `features/settings/.../preferences/CameraPreferencesRepository.kt`
+```
+features/camera/.../ui/CameraScreen.kt           — Flash (OFF/ON/AUTO icon+tint) + HDR (badge label OFF/ON/SMART/PRO)
+features/camera/.../ui/CameraUiOrchestrator.kt   — CameraModeSwitcher, PostCaptureEditToolCatalog
+features/camera/.../controls/CaptureControlsViewModel.kt
+features/camera/.../preview/CameraPreview.kt
+features/camera/.../preview/SessionCommandBus.kt
+features/camera/.../permissions/PermissionGate.kt
+features/camera/.../NativeImagingRuntimeFacade.kt
+```
 
-### Tests added/updated in the repair pass
+### Settings / preferences
 
-- `engines/ai-engine/impl/src/test/.../AiEngineOrchestratorTest.kt`
-- `engines/imaging-pipeline/impl/src/test/.../ImagingPipelineTest.kt`
-- `engines/imaging-pipeline/impl/src/test/.../MertensFallbackTest.kt`
-- `engines/hypertone-wb/impl/src/test/.../HyperToneWhiteBalanceEngineTest.kt`
-- `engines/hypertone-wb/impl/src/test/.../Phase15Test.kt`
+```
+features/settings/.../preferences/CameraPreferences.kt      — FlashMode, CameraFacing, HdrPreferences, AwbPreferences, GridPreferences
+features/settings/.../preferences/CameraPreferencesRepository.kt  — @Singleton @Inject
+features/settings/.../preferences/SharedPreferencesCameraStore.kt — persists all prefs
+```
+
+### Platform / runtime
+
+```
+platform/common/.../ThermalState.kt                           — canonical thermal enum
+platform/common/.../result/LeicaResult.kt                     — Success / Failure sealed class
+platform/common/.../result/PipelineStage.kt
+platform-android/native-imaging-core/impl/.../ImagingRuntimeOrchestrator.kt
+platform-android/native-imaging-core/impl/.../NativeImagingBridge.kt
+platform-android/native-imaging-core/impl/.../RuntimeGovernor.kt
+platform-android/sensor-hal/.../session/Camera2CameraController.kt
+platform-android/sensor-hal/.../session/CameraSessionManager.kt
+platform-android/sensor-hal/.../zsl/ZeroShutterLagRingBuffer.kt
+platform-android/sensor-hal/.../autofocus/HybridAutoFocusEngine.kt
+platform-android/sensor-hal/.../metering/AdvancedMeteringEngine.kt
+platform-android/gpu-compute/.../VulkanBackend.kt
+platform-android/gpu-compute/.../VulkanComputePipeline.kt
+```
+
+### UI design system
+
+```
+platform-android/ui-components/.../theme/LeicaColors.kt       — LeicaColorScheme, LeicaPalette
+platform-android/ui-components/.../theme/LeicaTheme.kt        — LeicaTokens (colors, spacing, motion, elevation)
+platform-android/ui-components/.../theme/LeicaSpacing.kt
+platform-android/ui-components/.../theme/LeicaTypography.kt
+platform-android/ui-components/.../camera/LeicaComponents.kt  — LeicaShutterButton, LeicaModeSwitcher, ViewfinderOverlay, SceneBadge, AfBracket
+platform-android/ui-components/.../camera/LeicaDialSheet.kt
+platform-android/ui-components/.../camera/GridOverlay.kt
+platform-android/ui-components/.../camera/Phase9UiModels.kt   — Phase9UiStateCalculator
+platform-android/ui-components/.../motion/Haptics.kt
+platform-android/ui-components/.../motion/LeicaTransitions.kt
+```
 
 ---
 
-## 8. Current Warnings / Intentional Follow-ups
+## 8. Tests Added / Updated
+
+### Engine tests
+
+```
+engines/ai-engine/impl/src/test/.../AiEngineOrchestratorTest.kt
+engines/imaging-pipeline/impl/src/test/.../ImagingPipelineTest.kt
+engines/imaging-pipeline/impl/src/test/.../MertensFallbackTest.kt
+engines/imaging-pipeline/impl/src/test/.../GhostMaskEngineTest.kt
+engines/imaging-pipeline/impl/src/test/.../RadianceMergerTest.kt
+engines/imaging-pipeline/impl/src/test/.../DeformableFeatureAlignerTest.kt
+engines/imaging-pipeline/impl/src/test/.../ProXdrOrchestratorUserOverrideTest.kt
+engines/imaging-pipeline/impl/src/test/.../HdrModePickerUserOverrideTest.kt
+engines/imaging-pipeline/impl/src/test/.../ComputationalModesPhase7Test.kt
+engines/imaging-pipeline/impl/src/test/.../VideoPipelinePhase8Test.kt
+engines/imaging-pipeline/impl/src/test/.../OutputMetadataPhase10Test.kt
+engines/hypertone-wb/impl/src/test/.../HyperToneWhiteBalanceEngineTest.kt
+engines/hypertone-wb/impl/src/test/.../MultiModalIlluminantFusionUserAwbTest.kt
+engines/hypertone-wb/impl/src/test/.../Phase15Test.kt
+```
+
+### Feature / platform tests
+
+```
+features/camera/src/test/.../CaptureControlsViewModelTest.kt
+features/camera/src/test/.../PermissionStateTest.kt
+features/camera/src/test/.../CameraUiOrchestratorPhase9Test.kt
+features/gallery/src/test/.../GalleryMetadataEnginePhase9Test.kt
+features/settings/src/test/.../CameraPreferencesRepositoryTest.kt
+features/settings/src/test/.../SettingsCatalogTest.kt
+platform-android/sensor-hal/src/test/.../HybridAutoFocusEngineTest.kt
+platform-android/sensor-hal/src/test/.../CameraCapabilityProfileBuilderTest.kt
+platform-android/sensor-hal/src/test/.../AdvancedMeteringEngineTest.kt
+platform-android/sensor-hal/src/test/.../CameraRequestControlStateTest.kt
+platform-android/sensor-hal/src/test/.../CameraSessionStateMachineTest.kt
+platform-android/sensor-hal/src/test/.../ZeroShutterLagRingBufferTest.kt
+platform-android/native-imaging-core/impl/src/test/.../NativeImagingBridgeTest.kt
+platform-android/native-imaging-core/impl/src/test/.../RuntimeGovernorTest.kt
+platform-android/ui-components/src/test/.../GridOverlayGeometryTest.kt
+platform-android/ui-components/src/test/.../LeicaTokensTest.kt
+```
+
+---
+
+## 9. Current Warnings / Intentional Follow-ups
 
 These are not stale-doc bugs; they describe the current code accurately:
 
 - `AiEngineOrchestrator.downsample(...)` still falls back to zero-filled tiles unless the caller supplies pre-downsampled buffers.
-- `ImagingPipeline.applyMicroIsp(...)` now invokes the refiner, but the RGB→4-channel tile synthesis is still an approximation of Bayer-domain tiling.
-- `FfdNetNoiseReductionEngine` is a compatibility wrapper over `ShadowDenoiseEngine`, kept so older night-mode code and tests still compile while the repaired hot path uses `ShadowDenoiseEngine` directly.
-- `VendorDelegateLoader` is the only remaining reflective ML-loading path, because vendor delegate SDKs are not available on Maven.
+- `ImagingPipeline.applyMicroIsp(...)` invokes the refiner, but the RGB→4-channel tile synthesis is an approximation of Bayer-domain tiling (P6 will refine this).
+- `FfdNetNoiseReductionEngine` is a compatibility wrapper over `ShadowDenoiseEngine`; older night-mode code still compiles; the repaired hot path uses `ShadowDenoiseEngine` directly.
+- `VendorDelegateLoader` is the only remaining reflective ML-loading path — vendor delegate SDKs are not available on Maven.
+- `BokehEngineOrchestrator` currently stubs CoC math; P6 will wire real depth + face-mask inputs.
+- `CameraScreen.kt` Flash and HDR HUD buttons are now visually reactive; `LumaFrame`, `AfBracket`, and `faces` overlay inputs are still hard-coded placeholders (P5 full real-data wiring is a follow-up).
 
 ---
 
-## 9. Build / Tooling Notes
+## 10. Build / Tooling Notes
 
-- Build system: Gradle Kotlin DSL
-- Convention plugins live in `build-logic/`
-- Model assets are copied from `/Model/` into `app/src/main/assets/models/` by `copyOnDeviceModels`
-- `:ai-engine:impl` now has direct LiteRT and MediaPipe dependencies
+- Build system: Gradle Kotlin DSL, convention plugins in `build-logic/`
+- Model assets are copied from `/Model/**/*.tflite` and `**/*.task` into `app/src/main/assets/models/` by the `copyOnDeviceModels` task, which runs before `preBuild`
+- `:ai-engine:impl` has direct LiteRT and MediaPipe dependencies
+- NDK r27 required for `:native-imaging-core:impl` (C++17 source under `impl/src/main/cpp`)
+- C++ code under `native-imaging-core/impl/src/main/cpp/` — Vulkan compute shaders live under `gpu-compute/src/main/assets/shaders/` and `gpu-compute/src/main/resources/shaders/`
 
-Typical verification commands used by the plan:
+Typical verification commands:
 
 ```bash
+./gradlew clean
 ./gradlew assembleDevDebug
 ./gradlew :app:kaptGenerateStubsDevDebugKotlin
 ./gradlew :ai-engine:impl:test
 ./gradlew :imaging-pipeline:impl:test
 ./gradlew :hypertone-wb:impl:test
+
+# P0 sanity checks
+grep -rn "com.leica.cam.ai_engine.impl" engines/hypertone-wb/impl engines/imaging-pipeline/impl
+# → must return zero results
+find . -name AssetsModule.kt -path '*/app/*'
+# → must return empty
 ```
 
 ---
 
-## 10. Documentation / Planning Files
+## 11. Documentation / Planning Files
 
-- `Plan.md` — staged repair / upgrade plan
-- `Problems list.md` — audit and defect inventory
-- `README.md` — high-level product / architecture overview
-- `Implementation.md` — historical implementation notes
+| File | Purpose |
+|------|---------|
+| `Plan.md` | Staged repair / upgrade plan (P0–P6 + P-DOCS); sub-plans in order |
+| `Problems list.md` | Defect inventory and audit notes used for repair passes |
+| `Implementation.md` | Historical implementation notes and decisions |
+| `README.md` | High-level product and architecture overview |
+| `changelog.md` | Change log |
+| `project-structure.md` | This file — authoritative repository map |
 
 ---
 
-## 11. Maintenance Checklist for This File
+## 12. Maintenance Checklist for This File
 
-Update this file whenever you change:
+Update this file whenever you:
 
-- module inclusion in `settings.gradle.kts`
-- DI ownership or Hilt module locations
-- live runtime flow (especially capture / HDR / AI wiring)
-- deleted or newly-canonical files
-- any warning marker that has become outdated
+- Add or remove a module in `settings.gradle.kts`
+- Change DI ownership or Hilt module locations
+- Modify the live runtime capture flow (HDR / AI wiring)
+- Delete or add canonical files
+- Add new warnings or resolve existing ones
+- Change the app icon / res structure

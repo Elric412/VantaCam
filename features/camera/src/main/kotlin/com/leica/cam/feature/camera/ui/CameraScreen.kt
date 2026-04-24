@@ -22,7 +22,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Camera
 import androidx.compose.material.icons.filled.Cameraswitch
+import androidx.compose.material.icons.filled.FlashAuto
+import androidx.compose.material.icons.filled.FlashOff
 import androidx.compose.material.icons.filled.FlashOn
+import androidx.compose.material.icons.filled.HdrOff
 import androidx.compose.material.icons.filled.HdrOn
 import androidx.compose.material.icons.filled.Lens
 import androidx.compose.material.icons.filled.Menu
@@ -31,6 +34,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -206,6 +210,7 @@ fun CameraScreen(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // Flash button — icon and tint reflect the current mode.
             IconButton(onClick = {
                 val next = preferences.flashMode.next()
                 deps.preferences.update { it.copy(flashMode = next) }
@@ -217,18 +222,61 @@ fun CameraScreen(
                     },
                 )
             }) {
-                Icon(Icons.Default.FlashOn, contentDescription = "Flash", tint = tokens.onBackground)
+                AnimatedContent(
+                    targetState = preferences.flashMode,
+                    transitionSpec = { fadeIn(tween(150)) togetherWith fadeOut(tween(150)) },
+                    label = "FlashIconAnim",
+                ) { flashMode ->
+                    val (flashIcon: ImageVector, flashTint) = when (flashMode) {
+                        FlashMode.OFF  -> Icons.Default.FlashOff  to tokens.onSurfaceMuted
+                        FlashMode.ON   -> Icons.Default.FlashOn   to Color(0xFFFFD600)   // amber
+                        FlashMode.AUTO -> Icons.Default.FlashAuto to Color(0xFFFFD600)
+                    }
+                    Icon(flashIcon, contentDescription = "Flash: ${flashMode.name}", tint = flashTint)
+                }
             }
+            // HDR button — badge label shows current mode.
             IconButton(onClick = {
                 val next = when (preferences.hdr.mode) {
-                    UserHdrMode.OFF -> UserHdrMode.ON
-                    UserHdrMode.ON -> UserHdrMode.SMART
-                    UserHdrMode.SMART -> UserHdrMode.PRO_XDR
+                    UserHdrMode.OFF     -> UserHdrMode.ON
+                    UserHdrMode.ON      -> UserHdrMode.SMART
+                    UserHdrMode.SMART   -> UserHdrMode.PRO_XDR
                     UserHdrMode.PRO_XDR -> UserHdrMode.OFF
                 }
                 deps.preferences.update { it.copy(hdr = it.hdr.copy(mode = next)) }
             }) {
-                Icon(Icons.Default.HdrOn, contentDescription = "HDR", tint = tokens.onBackground)
+                AnimatedContent(
+                    targetState = preferences.hdr.mode,
+                    transitionSpec = { fadeIn(tween(150)) togetherWith fadeOut(tween(150)) },
+                    label = "HdrIconAnim",
+                ) { hdrMode ->
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                    ) {
+                        val (hdrIcon: ImageVector, hdrTint) = when (hdrMode) {
+                            UserHdrMode.OFF     -> Icons.Default.HdrOff to tokens.onSurfaceMuted
+                            UserHdrMode.ON      -> Icons.Default.HdrOn  to tokens.onBackground
+                            UserHdrMode.SMART   -> Icons.Default.HdrOn  to Color(0xFF4FC3F7)  // light-blue
+                            UserHdrMode.PRO_XDR -> Icons.Default.HdrOn  to Color(0xFFFFD600)  // gold
+                        }
+                        Icon(hdrIcon, contentDescription = "HDR: ${hdrMode.name}", tint = hdrTint)
+                        Text(
+                            text = when (hdrMode) {
+                                UserHdrMode.OFF     -> "OFF"
+                                UserHdrMode.ON      -> "ON"
+                                UserHdrMode.SMART   -> "SMART"
+                                UserHdrMode.PRO_XDR -> "PRO"
+                            },
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontSize = androidx.compose.ui.unit.TextUnit(
+                                    8f, androidx.compose.ui.unit.TextUnitType.Sp
+                                )
+                            ),
+                            color = hdrTint,
+                        )
+                    }
+                }
             }
             Box(
                 modifier = Modifier
