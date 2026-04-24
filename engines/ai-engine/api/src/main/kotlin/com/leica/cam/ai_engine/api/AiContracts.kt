@@ -1,12 +1,5 @@
 package com.leica.cam.ai_engine.api
 
-import com.leica.cam.common.result.LeicaResult
-import com.leica.cam.photon_matrix.FusedPhotonBuffer
-
-interface IAiEngine {
-    suspend fun classifyAndScore(fused: FusedPhotonBuffer, captureMode: CaptureMode): LeicaResult<SceneAnalysis>
-}
-
 data class SceneAnalysis(
     val sceneLabel: SceneLabel,
     val qualityScore: QualityScore,
@@ -22,8 +15,14 @@ enum class SceneLabel {
     FOOD,
     PET,
     BACKLIT,
+    BACKLIT_PORTRAIT,
     MACRO,
     INDOOR,
+    OUTDOOR,
+    GENERAL,
+    STAGE,
+    SNOW,
+    ARCHITECTURE,
     UNKNOWN,
 }
 

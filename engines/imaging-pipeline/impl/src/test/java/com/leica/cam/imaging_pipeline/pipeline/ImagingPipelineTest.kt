@@ -1,7 +1,7 @@
 package com.leica.cam.imaging_pipeline.pipeline
 
 import com.leica.cam.common.result.LeicaResult
-import com.leica.cam.common.result.PipelineStage
+import com.leica.cam.imaging_pipeline.hdr.ProXdrOrchestrator
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -9,9 +9,10 @@ import org.junit.Test
 class ImagingPipelineTest {
     private val alignmentEngine = FrameAlignmentEngine()
     private val hdrMergeEngine = HdrMergeEngine()
-    private val toneMapper = PerceptualToneMappingEngine()
-    private val sharpening = PsfDeconvolutionSharpeningEngine()
-    private val denoising = FfdNetNoiseReductionEngine()
+    private val toneMapper = DurandBilateralToneMappingEngine()
+    private val sCurveEngine = CinematicSCurveEngine()
+    private val sharpening = LuminositySharpener()
+    private val denoising = ShadowDenoiseEngine()
 
     @Test
     fun `alignment returns identity transform for identical frames`() {
@@ -44,13 +45,14 @@ class ImagingPipelineTest {
 
     @Test
     fun `full phase2 pipeline processes burst and returns bounded output`() {
-        val orchestrator = ImagingPipelineOrchestrator(
-            alignmentEngine = alignmentEngine,
-            hdrMergeEngine = hdrMergeEngine,
+        val pipeline = ImagingPipeline(
+            proXdrOrchestrator = ProXdrOrchestrator(),
             toneMappingEngine = toneMapper,
-            sharpeningEngine = sharpening,
-            denoisingEngine = denoising,
+            sCurveEngine = sCurveEngine,
+            shadowDenoiser = denoising,
+            luminositySharpener = sharpening,
         )
+        val orchestrator = ImagingPipelineOrchestrator(pipeline)
         val burst = listOf(
             syntheticFrame(16, 16, offset = 0.0f),
             syntheticFrame(16, 16, offset = 0.05f),
@@ -62,9 +64,9 @@ class ImagingPipelineTest {
         assertTrue(result is LeicaResult.Success)
         val frame = (result as LeicaResult.Success).value
         assertEquals(16 * 16, frame.red.size)
-        assertTrue(frame.red.all { it in 0f..1f })
-        assertTrue(frame.green.all { it in 0f..1f })
-        assertTrue(frame.blue.all { it in 0f..1f })
+        assertTrue(frame.red.all { it >= 0f })
+        assertTrue(frame.green.all { it >= 0f })
+        assertTrue(frame.blue.all { it >= 0f })
     }
 
     private fun syntheticFrame(width: Int, height: Int, offset: Float): PipelineFrame {

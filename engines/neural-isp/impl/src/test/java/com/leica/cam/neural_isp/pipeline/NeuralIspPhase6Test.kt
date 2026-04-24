@@ -1,7 +1,7 @@
 package com.leica.cam.neural_isp.pipeline
 
-import com.leica.cam.ai_engine.pipeline.SceneType
-import com.leica.cam.ai_engine.pipeline.SegmentationMask
+import com.leica.cam.ai_engine.api.SceneType
+import com.leica.cam.ai_engine.api.SegmentationMask
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test

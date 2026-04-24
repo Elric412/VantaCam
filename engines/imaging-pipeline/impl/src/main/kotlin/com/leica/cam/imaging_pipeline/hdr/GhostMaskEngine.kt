@@ -68,7 +68,12 @@ class GhostMaskEngine {
         val luma = frame.luminance()
         val sorted = luma.copyOf()
         sorted.sort()
-        val median = sorted[sorted.size / 2]
+        val size = sorted.size
+        val median = if (size % 2 == 0) {
+            (sorted[size / 2 - 1] + sorted[size / 2]) / 2f
+        } else {
+            sorted[size / 2]
+        }
         return BooleanArray(luma.size) { luma[it] > median }
     }
 

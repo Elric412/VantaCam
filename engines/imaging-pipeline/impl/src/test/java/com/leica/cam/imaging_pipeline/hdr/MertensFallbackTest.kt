@@ -49,6 +49,34 @@ class MertensFallbackTest {
     }
 
     @Test
+    fun `fused frame keeps base exposure metadata`() {
+        val neutral = PipelineFrame(
+            width = 16,
+            height = 16,
+            red = FloatArray(16 * 16) { 0.5f },
+            green = FloatArray(16 * 16) { 0.5f },
+            blue = FloatArray(16 * 16) { 0.5f },
+            evOffset = 0f,
+            isoEquivalent = 640,
+            exposureTimeNs = 33_000_000L,
+        )
+        val darker = neutral.copy(
+            red = FloatArray(16 * 16) { 0.2f },
+            green = FloatArray(16 * 16) { 0.2f },
+            blue = FloatArray(16 * 16) { 0.2f },
+            evOffset = -2f,
+        )
+
+        val result = mertens.fuse(listOf(darker, neutral))
+
+        assertTrue(result is LeicaResult.Success)
+        val fused = (result as LeicaResult.Success).value
+        assertEquals(640, fused.isoEquivalent)
+        assertEquals(33_000_000L, fused.exposureTimeNs)
+        assertEquals(0f, fused.evOffset, 0f)
+    }
+
+    @Test
     fun `empty frames returns failure`() {
         val result = mertens.fuse(emptyList())
         assertTrue(result is LeicaResult.Failure)

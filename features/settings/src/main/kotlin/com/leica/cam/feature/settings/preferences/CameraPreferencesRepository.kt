@@ -3,6 +3,7 @@ package com.leica.cam.feature.settings.preferences
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
@@ -12,7 +13,7 @@ import javax.inject.Singleton
  * interaction, never on the capture hot path.
  */
 @Singleton
-class CameraPreferencesRepository(
+class CameraPreferencesRepository @Inject constructor(
     private val store: SharedPreferencesCameraStore,
 ) {
     private val _state = MutableStateFlow(store.load())

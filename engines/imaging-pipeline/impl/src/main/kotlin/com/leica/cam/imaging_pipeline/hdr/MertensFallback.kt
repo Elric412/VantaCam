@@ -57,8 +57,20 @@ class MertensFallback {
         val outR = pyramidBlend(frames.map { it.red }, normalised, width, height, levels)
         val outG = pyramidBlend(frames.map { it.green }, normalised, width, height, levels)
         val outB = pyramidBlend(frames.map { it.blue }, normalised, width, height, levels)
+        val base = frames.minByOrNull { abs(it.evOffset) } ?: frames[0]
 
-        return LeicaResult.Success(PipelineFrame(width, height, outR, outG, outB))
+        return LeicaResult.Success(
+            PipelineFrame(
+                width = width,
+                height = height,
+                red = outR,
+                green = outG,
+                blue = outB,
+                evOffset = 0f,
+                isoEquivalent = base.isoEquivalent,
+                exposureTimeNs = base.exposureTimeNs,
+            ),
+        )
     }
 
     /**

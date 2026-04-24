@@ -1,5 +1,6 @@
 package com.leica.cam.imaging_pipeline.hdr
 
+import com.leica.cam.common.ThermalState
 import kotlin.math.log10
 
 /**
@@ -28,8 +29,8 @@ object BracketSelector {
      * @return List of EV offsets relative to the base exposure.
      */
     fun pickBracket(scene: SceneDescriptor): List<Float> {
-        val thermal = thermalFromLevel(scene.thermalLevel)
-        if (thermal == ThermalState.SEVERE) return listOf(0f)
+        val thermal = ThermalState.fromOrdinal(scene.thermalLevel)
+        if (thermal >= ThermalState.MULTI_FRAME_CUTOFF) return listOf(0f)
 
         val hist = scene.luminanceHistogram
         val p01 = histPercentile(hist, 0.01f)
@@ -41,7 +42,7 @@ object BracketSelector {
             dynRangeDb < 70f -> listOf(0f, -1.5f)
             scene.facePresent -> listOf(-1f, 0f, +1.5f)
             dynRangeDb < 90f -> listOf(-2f, 0f, +1.5f)
-            thermal == ThermalState.HIGH -> listOf(-2f, 0f, +1.5f)
+            thermal >= ThermalState.CRITICAL -> listOf(-2f, 0f, +1.5f)
             else -> listOf(-4f, -2f, 0f, +2f, +4f)
         }.map { ev -> ev.coerceIn(MAX_UNDER_EV, MAX_OVER_EV) }
     }
@@ -85,12 +86,5 @@ object BracketSelector {
             if (cumSum >= frac) return bin / 255f
         }
         return 1f
-    }
-
-    private fun thermalFromLevel(level: Int): ThermalState = when {
-        level >= 6 -> ThermalState.SEVERE
-        level >= 4 -> ThermalState.HIGH
-        level >= 2 -> ThermalState.ELEVATED
-        else -> ThermalState.NORMAL
     }
 }

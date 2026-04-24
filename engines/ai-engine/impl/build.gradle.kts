@@ -10,11 +10,17 @@ android {
 }
 
 dependencies {
-    implementation(project(":imaging-pipeline:api"))
     implementation(project(":ai-engine:api"))
     implementation(project(":depth-engine:api"))
     implementation(project(":face-engine:api"))
     implementation(project(":common"))
+    implementation(libs.kotlinx.coroutines.core)
+    implementation(libs.litert)
+    implementation(libs.litert.gpu)
+    implementation(libs.litert.support)
+    implementation(libs.mediapipe.tasks.vision)
     implementation(libs.hilt.android)
     kapt(libs.hilt.compiler)
+
+    testImplementation(libs.junit)
 }
