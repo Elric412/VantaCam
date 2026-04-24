@@ -10,7 +10,9 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.selects.select
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -73,20 +75,31 @@ class ImagingRuntimeOrchestrator(
 
     private fun startWorker() {
         workerJob = runtimeScope.launch {
-            while (true) {
-                val ingest = ingestQueue.receive()
-                bridge.queueFrame(ingest.frame, ingest.metadata)
+            val inFlight = mutableMapOf<Long, FrameTask>()
+            while (isActive) {
+                select<Unit> {
+                    ingestQueue.onReceive { ingest ->
+                        bridge.queueFrame(ingest.frame, ingest.metadata)
+                        inFlight[ingest.frame.frameId] = ingest
+                    }
+                    processingQueue.onReceive { request ->
+                        bridge.requestProcess(request)
+                    }
+                }
 
-                val processRequest = processingQueue.receive()
-                bridge.requestProcess(processRequest)
-                bridge.release(ingest.frame.hardwareBufferHandle)
-                val result = bridge.pollResult(timeoutMs = 0L)
+                val result = bridge.pollResult(timeoutMs = 5L)
                 if (result is LeicaResult.Success) {
-                    val value = result.value
-                    if (value != null) {
+                    result.value?.let { value ->
+                        inFlight.remove(value.requestId)?.let { task ->
+                            bridge.release(task.frame.hardwareBufferHandle)
+                        }
                         bridge.release(value.outputHandle)
                     }
                 }
+            }
+
+            inFlight.values.forEach { task ->
+                bridge.release(task.frame.hardwareBufferHandle)
             }
         }
     }

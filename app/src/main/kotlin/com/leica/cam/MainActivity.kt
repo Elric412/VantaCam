@@ -112,7 +112,7 @@ class MainActivity : ComponentActivity() {
             popExitTransition = { slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.End, tween(motion.standard, easing = motion.exit)) + fadeOut(tween(motion.fast)) },
         ) {
             composable("camera") {
-                PermissionGate { CameraScreen(cameraDeps) }
+                PermissionGate { CameraScreen(cameraDeps, onOpenGallery = { navController.navigate("gallery") }) }
             }
             composable("gallery") { GalleryScreen(galleryEngine) }
             composable("settings") { SettingsScreen() }
