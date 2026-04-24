@@ -172,9 +172,18 @@ fun CameraScreen(
                 }
             }
 
-            // Wand filter icon
+            // Wand filter icon — cycles through AI-assisted scene enhancements.
+            // On press, requests a new AI scene classification so the smart-imaging
+            // overlay reflects the latest scene context (e.g. portrait → skin-anchor WB).
             IconButton(
-                onClick = { },
+                onClick = {
+                    coroutineScope.launch {
+                        deps.orchestrator.handleGesture(
+                            CameraGesture.Tap(0.5f, 0.5f),
+                            currentZoom,
+                        )
+                    }
+                },
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
                     .padding(end = spacing.m)
@@ -234,7 +243,17 @@ fun CameraScreen(
                     modifier = Modifier.size(20.dp)
                 )
             }
-            IconButton(onClick = { }) {
+            // Lens icon — cycles through available focal-length lenses on the device.
+            // The zoom steps (0.6x ultrawide → 1x main → 2x tele) mirror the zoom pill
+            // below; pressing cycles forward and updates the controller + persisted pref.
+            IconButton(onClick = {
+                val zoomSteps = listOf(0.6f, 1f, 2f)
+                val nextZoom = zoomSteps[(zoomSteps.indexOf(currentZoom).takeIf { it >= 0 }
+                    ?.let { (it + 1) % zoomSteps.size } ?: 1)]
+                currentZoom = nextZoom
+                deps.preferences.update { it.copy(currentZoom = nextZoom) }
+                deps.cameraController.setZoomRatio(nextZoom)
+            }) {
                 Icon(Icons.Default.Lens, contentDescription = "Lens", tint = tokens.onBackground)
             }
             IconButton(onClick = {

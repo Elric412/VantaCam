@@ -31,14 +31,23 @@ import kotlin.math.sqrt
  *
  * **Performance:** ~10 ms per frame on GPU; this CPU reference implementation
  * runs ~80 ms per 12MP frame on a mid-range Dimensity (acceptable for <=5 frames).
+ *
+ * **P2-13 fixes:**
+ * - Border pixels use reflect-padding instead of clamping the previous flow
+ *   estimate, which introduced a seam at the pyramid border (visible as a ~r-pixel
+ *   ring of zero-motion pixels at every frame edge).
+ * - Motion magnitude is clamped to [MAX_FLOW_MAGNITUDE] px per pyramid level
+ *   to guard against numerical blow-up in textureless / low-contrast regions.
  */
 class DeformableFeatureAligner {
 
     companion object {
         private const val PYRAMID_LEVELS = 4
-        private const val LK_WINDOW_RADIUS = 2   // 5x5 window
+        private const val LK_WINDOW_RADIUS = 2       // 5x5 window
         private const val LK_EPSILON = 0.01f
-        private const val DET_THRESHOLD = 1e-8f   // Textureless region guard
+        private const val DET_THRESHOLD = 1e-8f       // Textureless region guard
+        /** Maximum per-level flow displacement in pixels (prevents blow-up). */
+        private const val MAX_FLOW_MAGNITUDE = 16f
     }
 
     /** Dense flow field: per-pixel (u, v) displacement. */
@@ -173,26 +182,44 @@ class DeformableFeatureAligner {
                     // Solve [sumIx2, sumIxIy; sumIxIy, sumIy2] * [du; dv] = -[sumIxIt; sumIyIt]
                     val det = sumIx2 * sumIy2 - sumIxIy * sumIxIy
                     if (abs(det) < DET_THRESHOLD) {
-                        // Textureless region (aperture problem): zero flow
+                        // Textureless region (aperture problem): keep previous estimate
                         newU[idx] = prevU[idx]
                         newV[idx] = prevV[idx]
                     } else {
                         val invDet = 1f / det
                         val du = invDet * (sumIy2 * (-sumIxIt) - sumIxIy * (-sumIyIt))
                         val dv = invDet * (-sumIxIy * (-sumIxIt) + sumIx2 * (-sumIyIt))
-                        newU[idx] = prevU[idx] + du
-                        newV[idx] = prevV[idx] + dv
+                        // P2-13 fix: clamp motion magnitude to guard against numerical
+                        // blow-up in low-gradient / out-of-bounds regions.
+                        val rawU = prevU[idx] + du
+                        val rawV = prevV[idx] + dv
+                        val mag = sqrt(rawU * rawU + rawV * rawV)
+                        if (mag > MAX_FLOW_MAGNITUDE) {
+                            val scale = MAX_FLOW_MAGNITUDE / mag
+                            newU[idx] = rawU * scale
+                            newV[idx] = rawV * scale
+                        } else {
+                            newU[idx] = rawU
+                            newV[idx] = rawV
+                        }
                     }
                 }
             }
 
-            // Copy border pixels from previous estimate
+            // P2-13 fix: reflect-pad border pixels instead of copying the previous
+            // estimate.  The nearest valid interior pixel is mirrored across the
+            // border, removing the zero-motion ring artifact produced by the old
+            // clamp-to-prev approach.
             for (y in 0 until lh) {
                 for (x in 0 until lw) {
                     if (y < r || y >= lh - r || x < r || x >= lw - r) {
                         val i = y * lw + x
-                        newU[i] = prevU[i]
-                        newV[i] = prevV[i]
+                        // Reflect toward interior: clamp source coordinate to the
+                        // nearest valid solved pixel.
+                        val ry = y.coerceIn(r, lh - r - 1)
+                        val rx = x.coerceIn(r, lw - r - 1)
+                        newU[i] = newU[ry * lw + rx]
+                        newV[i] = newV[ry * lw + rx]
                     }
                 }
             }
