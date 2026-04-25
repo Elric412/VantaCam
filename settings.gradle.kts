@@ -55,6 +55,7 @@ include(
     ":bokeh-engine:impl",
     ":motion-engine:api",
     ":motion-engine:impl",
+    ":capture-orchestrator",
 )
 
 project(":feature:camera").projectDir = file("features/camera")
@@ -93,3 +94,4 @@ project(":bokeh-engine:api").projectDir = file("engines/bokeh-engine/api")
 project(":bokeh-engine:impl").projectDir = file("engines/bokeh-engine/impl")
 project(":motion-engine:api").projectDir = file("engines/motion-engine/api")
 project(":motion-engine:impl").projectDir = file("engines/motion-engine/impl")
+project(":capture-orchestrator").projectDir = file("core/capture-orchestrator")

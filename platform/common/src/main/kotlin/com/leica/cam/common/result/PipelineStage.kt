@@ -32,5 +32,29 @@ enum class PipelineStage {
     SENSOR_DETECTION,
     SOC_DETECTION,
     AI_ENGINE,
+
+    // ── Capture orchestration stages ─────────────────────────────────
+    CAPTURE_ORCHESTRATION,
+    ZSL_BUFFER,
+    AUTOFOCUS,
+    METERING,
+    ISP_ROUTING,
+    COLOR_TRANSFORM,
+    PERCEPTUAL_TONE,
+    FILM_GRAIN,
+    LUT_3D,
+    SKIN_TONE,
+    OUTPUT_ENCODING,
+
+    // ── Advanced capture pipeline stages ──────────────────────────────
+    HDR_STRATEGY,
+    HDR_MERGE,
+    DEHAZE,
+    CLARITY,
+    SHOT_QUALITY,
+    PORTRAIT_MODE,
+    PROCESSING_BUDGET,
+    PER_HUE_HSL,
+    CAM16_COLOR,
 }
 
