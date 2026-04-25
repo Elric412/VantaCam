@@ -1,6 +1,6 @@
 # Project Structure — LeicaCam
 
-_Last updated: 2026-04-24 (UTC) — updated after icon integration, P5 UI-wiring pass, and P0 verification._
+_Last updated: 2026-04-25 (UTC) — added ColorLM 2.0 color-science wiring (`:color-science:impl` now in live capture flow), Camera2 dual-illuminant calibration ingestion, and the canonical `docs/Color Science Processing.md` reference._
 
 This document is the authoritative repository map for the current LeicaCam tree. It reflects the current state where:
 
@@ -561,12 +561,16 @@ find . -name AssetsModule.kt -path '*/app/*'
 
 | File | Purpose |
 |------|---------|
-| `Plan.md` | Staged repair / upgrade plan (P0–P6 + P-DOCS); sub-plans in order |
+| `Plan.md` | Active Advisor handoff plan (CS-1 … CS-6) wiring ColorLM 2.0 into the live capture flow. Supersedes the earlier P0–P6 + P-DOCS staged repair plan |
 | `Problems list.md` | Defect inventory and audit notes used for repair passes |
 | `Implementation.md` | Historical implementation notes and decisions |
 | `README.md` | High-level product and architecture overview |
 | `changelog.md` | Change log |
 | `project-structure.md` | This file — authoritative repository map |
+| `docs/Color Science Processing.md` | Canonical color-science pipeline math, render order, calibration targets for ColorLM 2.0 |
+| `Knowledge/` | Research papers (Color Science, HNCS / Leica, Hybrid Color Pipeline, Advanced HDR, Imaging) — read-only inputs |
+| `.agents/skills/Advisor/SKILL.md` | Advisor strategy: produce Plan.md instead of code |
+| `.agents/skills/color-science-engineer/SKILL.md` | Color-science engineer persona, laws, and references (`pipeline-math.md`, `android-implementation.md`, `calibration-methodology.md`, `leica-hasselblad-rendering.md`) |
 
 ---
 
@@ -576,7 +580,97 @@ Update this file whenever you:
 
 - Add or remove a module in `settings.gradle.kts`
 - Change DI ownership or Hilt module locations
-- Modify the live runtime capture flow (HDR / AI wiring)
+- Modify the live runtime capture flow (HDR / AI / color-science wiring)
 - Delete or add canonical files
 - Add new warnings or resolve existing ones
 - Change the app icon / res structure
+- Modify the color-science render order, profile library, calibration ingestion, or ΔE2000 thresholds (also update `docs/Color Science Processing.md`)
+
+---
+
+## 13. Color Science Wiring (ColorLM 2.0)
+
+The color-science engine lives in `:color-science:impl` and is wired into the live capture flow as of 2026-04-25.
+
+### 13.1 Module surface
+
+| File | Purpose |
+|------|---------|
+| `core/color-science/api/.../ColorScienceContracts.kt` | `IColorLM2Engine` API, `ColourMappedBuffer`, `SceneContext`, `IlluminantHint`, `ColorZone`. The only color-science types crossing module boundaries. |
+| `core/color-science/impl/.../pipeline/ColorScienceEngines.kt` | All math: `ColorSciencePipeline`, `PerZoneCcmEngine`, `DngDualIlluminantInterpolator`, `TetrahedralLutEngine`, `CiecamCuspGamutMapper`, `PerHueHslEngine`, `SkinToneProtectionPipeline`, `FilmGrainSynthesizer`, `ColorAccuracyBenchmark`, `ColorProfileLibrary`, `BradfordCat`. |
+| `core/color-science/impl/.../pipeline/ColorScienceModels.kt` | Public-facing data types: `ColorProfile`, `ColorFrame`, `PerHueAdjustmentSet`, `ProfileLook`, `SkinAnchor`, `FilmGrainSettings`. |
+| `core/color-science/impl/.../pipeline/ColorLM2EngineImpl.kt` | `IColorLM2Engine` implementation. Adapts `FusedPhotonBuffer` ↔ `ColorFrame`. Holds runtime `SensorCalibration` override (CS-1). |
+| `core/color-science/impl/.../pipeline/ColorScienceAdapters.kt` | Helpers: `ColorProfileFromSceneLabel`, `FusedPhotonBuffer.toColorFrame`, `ColorFrame.intoFusedPhotonBuffer` (CS-1). |
+| `core/color-science/impl/.../calibration/Camera2CalibrationReader.kt` | Reads `SENSOR_FORWARD_MATRIX1/2`, `SENSOR_REFERENCE_ILLUMINANT1/2` from `CameraCharacteristics`; pushes them into `ColorLM2EngineImpl` (CS-2). |
+| `core/color-science/impl/.../di/ColorScienceModule.kt` | Hilt entry point. Provides every engine in the chain plus `IColorLM2Engine` binding (CS-1). |
+| `engines/imaging-pipeline/impl/.../pipeline/ColorSciencePipelineStage.kt` | Imaging-pipeline-side adapter; calls `IColorLM2Engine.mapColours` between WB and tone mapping (CS-3). |
+| `core/color-science/tone_curve_demo.py` | Reference Python implementation of the Hable/Hasselblad-tuned filmic curve. Documentation only — not used at runtime. |
+
+### 13.2 Render order (sacred)
+
+```
+Per-hue HSL → Vibrance/CAM → Skin protection →
+Per-zone CCM (DNG dual-illuminant interpolation, scene CCT from HyperTone) →
+3D LUT (65³ tetrahedral, ACEScg linear in/out) →
+CIECAM02 CUSP gamut map (Display-P3 / sRGB) →
+Film grain (deterministic blue-noise, profile-tuned)
+```
+
+Any reordering must be reflected here AND in `docs/Color Science Processing.md` simultaneously.
+
+### 13.3 Calibration ingestion flow
+
+```
+Camera2CameraController.onSessionConfigured(...)
+  → Camera2CalibrationReader.ingest(characteristics)
+       reads SENSOR_FORWARD_MATRIX1/2 (3×3 Rational, sensor RGB → XYZ D50)
+       reads SENSOR_REFERENCE_ILLUMINANT1/2 (typically STANDARD_A and D65)
+  → ColorLM2EngineImpl.updateSensorCalibration(SensorCalibration)
+       atomic volatile swap; next frame uses the new matrices
+```
+
+If a device exposes neither matrix, the engine falls back to baked Sony-IMX defaults in `DngDualIlluminantInterpolator.Companion`.
+
+### 13.4 DI bindings
+
+`ColorScienceModule` provides:
+
+- `IColorLM2Engine` ← `ColorLM2EngineImpl` (singleton)
+- `ColorSciencePipeline`, `PerZoneCcmEngine`, `DngDualIlluminantInterpolator`, `TetrahedralLutEngine`, `CiecamCuspGamutMapper`, `PerHueHslEngine`, `SkinToneProtectionPipeline`, `FilmGrainSynthesizer`, `ColorAccuracyBenchmark`
+- `Camera2CalibrationReader` (constructor-injected with the engine)
+
+`ImagingPipelineModule` provides:
+
+- `ColorSciencePipelineStage` — consumes `IColorLM2Engine` from the API; never touches `:color-science:impl` directly.
+
+### 13.5 Tests
+
+| File | Covers |
+|------|--------|
+| `core/color-science/impl/src/test/.../pipeline/ColorScienceWiringTest.kt` | DI binding completeness; pipeline default construction (CS-1). |
+| `core/color-science/impl/src/test/.../pipeline/ColorAccuracyBenchmarkTest.kt` | ΔE2000 D65 / StdA targets per `docs/Color Science Processing.md` §4.3 (CS-6). |
+| `core/color-science/impl/src/test/.../calibration/Camera2CalibrationReaderTest.kt` | Calibration ingestion + fallback (CS-2). |
+| `core/color-science/impl/src/test/.../pipeline/ColorSciencePipelineTest.kt` | Existing — pipeline render-order regression. |
+
+### 13.6 Models consumed (read-only, on-device only)
+
+| Model | Path | Consumer | Purpose |
+|---|---|---|---|
+| AWB neural prior | `Model/AWB/awb_final_full_integer_quant.tflite` | HyperTone WB → CCT estimate fed to ColorLM | Illuminant prior |
+| Semantic segmenter | `Model/Scene Understanding/deeplabv3.tflite` | `:ai-engine:impl` → `SemanticMask` → `PerZoneCcmEngine.zoneMask` | Per-pixel zone probabilities |
+| Face landmarker | `Model/Face Landmarker/face_landmarker.task` | `:face-engine:impl` → skin-region prior | Skin protection augmentation |
+| Scene classifier | `Model/Image Classifier/1.tflite` | `:ai-engine:impl` → `sceneLabel` → `ColorProfileFromSceneLabel.resolve(...)` | Profile auto-selection |
+| MicroISP refiner | `Model/MicroISP/MicroISP_V4_fp16.tflite` | `:imaging-pipeline:impl` (pre-color-science) | Bayer-domain refinement |
+
+### 13.7 Validation gates (CI-blocking)
+
+| Gate | Threshold |
+|---|---|
+| ColorChecker D65 mean ΔE2000 | ≤ 3.0 |
+| ColorChecker D65 max ΔE2000 | ≤ 5.5 |
+| Skin patches (Light/Dark) ΔE2000 | ≤ 4.0 |
+| StdA mean ΔE2000 | ≤ 4.0 |
+| Neutral patches ΔE2000 | ≤ 1.5 |
+| Gray-card ΔE2000 (post-WB) | ≤ 1.0 |
+
+A regression beyond any of these blocks merge.
