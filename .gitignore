@@ -10,3 +10,4 @@ captures/
 .env
 # Copied model assets — source of truth is /Model/
 app/src/main/assets/models/
+node_modules/

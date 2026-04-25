@@ -73,6 +73,10 @@ import com.leica.cam.ui_components.camera.ViewfinderGridStyle
 import com.leica.cam.ui_components.camera.ViewfinderOverlay
 import com.leica.cam.ui_components.theme.LeicaRed
 import com.leica.cam.ui_components.theme.LeicaTokens
+import com.leica.cam.capture.orchestrator.CaptureProcessingOrchestrator
+import com.leica.cam.capture.orchestrator.CaptureRequest
+import com.leica.cam.capture.orchestrator.HdrCaptureMode
+import com.leica.cam.common.result.LeicaResult
 import javax.inject.Inject
 import kotlinx.coroutines.launch
 
@@ -89,6 +93,7 @@ class CameraScreenDeps @Inject constructor(
     val cameraController: Camera2CameraController,
     val sessionManager: CameraSessionManager,
     val sessionCommandBus: SessionCommandBus,
+    val captureOrchestrator: CaptureProcessingOrchestrator,
 )
 
 @Composable
@@ -352,13 +357,46 @@ fun CameraScreen(
                 LeicaShutterButton(onClick = {
                     deps.orchestrator.handleGesture(CameraGesture.Tap(0.5f, 0.5f), 1.0f)
                     coroutineScope.launch {
-                        val captureResult = deps.sessionManager.capture()
-                        if (captureResult is com.leica.cam.common.result.LeicaResult.Failure) {
-                            android.widget.Toast.makeText(
-                                context,
-                                "Capture failed: ${captureResult.message}",
-                                android.widget.Toast.LENGTH_SHORT,
-                            ).show()
+                        // ── Full LUMO Capture Pipeline ───────────────────────
+                        // Build a CaptureRequest from current UI state (HDR mode,
+                        // colour profile, tone config) and run the complete
+                        // photon-to-pixel processing chain:
+                        //   ZSL → AF → Metering → ISP detect → Ingest → Align →
+                        //   Fuse → AI (scene/depth/face/colour) → HyperTone WB →
+                        //   Bokeh → Perceptual Tone (A-E) → Neural ISP →
+                        //   Skin Tone → 3D LUT → Film Grain → Output Encode
+                        val hdrMode = when (preferences.hdr.mode) {
+                            UserHdrMode.OFF     -> HdrCaptureMode.OFF
+                            UserHdrMode.ON      -> HdrCaptureMode.ON
+                            UserHdrMode.SMART   -> HdrCaptureMode.SMART
+                            UserHdrMode.PRO_XDR -> HdrCaptureMode.PRO_XDR
+                        }
+                        val captureRequest = CaptureRequest(
+                            hdrMode = hdrMode,
+                        )
+                        val pipelineResult = deps.captureOrchestrator.processCapture(captureRequest)
+                        when (pipelineResult) {
+                            is LeicaResult.Success -> {
+                                val result = pipelineResult.value
+                                android.widget.Toast.makeText(
+                                    context,
+                                    "Captured: ${result.sceneAnalysis.sceneLabel} " +
+                                        "(${result.captureLatencyMs}ms)",
+                                    android.widget.Toast.LENGTH_SHORT,
+                                ).show()
+                            }
+                            is LeicaResult.Failure -> {
+                                // Fallback: try basic CameraX capture if pipeline fails
+                                val fallbackResult = deps.sessionManager.capture()
+                                val msg = if (fallbackResult is LeicaResult.Failure) {
+                                    "Capture failed: ${pipelineResult.message}"
+                                } else {
+                                    "Captured (basic mode)"
+                                }
+                                android.widget.Toast.makeText(
+                                    context, msg, android.widget.Toast.LENGTH_SHORT,
+                                ).show()
+                            }
                         }
                     }
                 })

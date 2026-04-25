@@ -49,8 +49,11 @@ object FeatureCameraModule {
         preferences: com.leica.cam.feature.settings.preferences.CameraPreferencesRepository,
         cameraController: com.leica.cam.sensor_hal.session.Camera2CameraController,
         sessionManager: com.leica.cam.sensor_hal.session.CameraSessionManager,
+        sessionCommandBus: com.leica.cam.feature.camera.preview.SessionCommandBus,
+        captureOrchestrator: com.leica.cam.capture.orchestrator.CaptureProcessingOrchestrator,
     ): com.leica.cam.feature.camera.ui.CameraScreenDeps =
         com.leica.cam.feature.camera.ui.CameraScreenDeps(
-            orchestrator, uiStateCalculator, modeSwitcher, preferences, cameraController, sessionManager,
+            orchestrator, uiStateCalculator, modeSwitcher, preferences, cameraController,
+            sessionManager, sessionCommandBus, captureOrchestrator,
         )
 }
