@@ -1204,6 +1204,7 @@ class ColorSciencePipeline(
         frameIndex: Int,
         sceneCct: Float = 6500f,
         zoneMask: Array<Map<ColourZone, Float>>? = null,
+        zoneCcmInterpolatorOverride: DngDualIlluminantInterpolator? = null,
     ): LeicaResult<ColorFrame> {
         // Stage 1: Per-hue HSL adjustments (cosmetic user control)
         val hueAdjusted = hueEngine.apply(input, hueAdjustments)
@@ -1215,8 +1216,13 @@ class ColorSciencePipeline(
         val skinProtected = skinPipeline.protect(perceptual)
 
         // Stage 4: Per-zone CCM — Leica/Hasselblad scene-specific rendering
-        // This is the core differentiator from the old single-matrix approach.
-        val zoneCorrect = zoneCcmEngine.apply(skinProtected, sceneCct, zoneMask, profile)
+        // If a per-call interpolator override is supplied (from Camera2 calibration),
+        // construct a temporary PerZoneCcmEngine with the device-specific matrices.
+        // Otherwise fall back to the singleton engine injected at construction time.
+        val activeZoneEngine = zoneCcmInterpolatorOverride
+            ?.let { PerZoneCcmEngine(it) }
+            ?: zoneCcmEngine
+        val zoneCorrect = activeZoneEngine.apply(skinProtected, sceneCct, zoneMask, profile)
 
         // Stage 5: 3D LUT for profile look (tetrahedral interpolation, ACEScg linear)
         val lutApplied = when (val result = lutEngine.apply(zoneCorrect, profile)) {
