@@ -2,6 +2,8 @@ package com.leica.cam.imaging_pipeline.di
 
 import com.leica.cam.ai_engine.api.NeuralIspRefiner
 import com.leica.cam.ai_engine.api.SemanticSegmenter
+import com.leica.cam.color_science.api.IColorLM2Engine
+import com.leica.cam.imaging_pipeline.pipeline.ColorSciencePipelineStage
 import com.leica.cam.imaging_pipeline.hdr.ProXdrOrchestrator
 import com.leica.cam.imaging_pipeline.pipeline.AstrophotographyEngine
 import com.leica.cam.imaging_pipeline.pipeline.CinemaVideoModeEngine
@@ -71,6 +73,12 @@ object ImagingPipelineModule {
 
     @Provides
     @Singleton
+    fun provideColorSciencePipelineStage(
+        colorEngine: IColorLM2Engine,
+    ): ColorSciencePipelineStage = ColorSciencePipelineStage(colorEngine)
+
+    @Provides
+    @Singleton
     fun provideImagingPipeline(
         proXdrOrchestrator: ProXdrOrchestrator,
         toneMappingEngine: DurandBilateralToneMappingEngine,
@@ -79,6 +87,7 @@ object ImagingPipelineModule {
         luminositySharpener: LuminositySharpener,
         neuralIspRefiner: NeuralIspRefiner,
         semanticSegmenter: SemanticSegmenter,
+        colorScienceStage: ColorSciencePipelineStage,
     ): ImagingPipeline = ImagingPipeline(
         proXdrOrchestrator = proXdrOrchestrator,
         toneMappingEngine = toneMappingEngine,
@@ -87,6 +96,7 @@ object ImagingPipelineModule {
         luminositySharpener = luminositySharpener,
         microIspRefiner = neuralIspRefiner,
         semanticSegmenter = semanticSegmenter,
+        colorScienceStage = colorScienceStage,
     )
 
     @Provides

@@ -260,7 +260,11 @@ Shutter / capture request
        7. LuminositySharpener
        8. AcesToneMapper (P2 — when PRO_XDR mode active)
   → HyperToneWhiteBalanceEngine (AwbPredictor neural priors + CCM + mixed-light fusion)
-  → color-science / metadata composers (DNG, HEIC, XMP, EXIF)
+  → ColorSciencePipelineStage  ← NEW: full ColorLM 2.0 chain (per-zone CCM,
+                                  3D LUT 65³ tetrahedral, CIECAM02 CUSP gamut
+                                  mapping, skin-tone protection, film grain)
+                                  See `docs/Color Science Processing.md` for math.
+  → metadata composers (DNG, HEIC, XMP, EXIF)
   → output
 ```
 

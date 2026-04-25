@@ -11,7 +11,20 @@ class ColorSciencePipelineTest {
     private val hueEngine = PerHueHslEngine()
     private val skinPipeline = SkinToneProtectionPipeline()
     private val grainSynthesizer = FilmGrainSynthesizer()
-    private val pipeline = ColorSciencePipeline(lutEngine, hueEngine, skinPipeline, grainSynthesizer)
+    private val interpolator = DngDualIlluminantInterpolator(
+        forwardMatrixA = DngDualIlluminantInterpolator.defaultSensorForwardMatrixA(),
+        forwardMatrixD65 = DngDualIlluminantInterpolator.defaultSensorForwardMatrixD65(),
+    )
+    private val zoneCcmEngine = PerZoneCcmEngine(interpolator)
+    private val gamutMapper = CiecamCuspGamutMapper(OutputGamut.DISPLAY_P3)
+    private val pipeline = ColorSciencePipeline(
+        lutEngine = lutEngine,
+        hueEngine = hueEngine,
+        skinPipeline = skinPipeline,
+        grainSynthesizer = grainSynthesizer,
+        zoneCcmEngine = zoneCcmEngine,
+        gamutMapper = gamutMapper,
+    )
 
     @Test
     fun `tetrahedral LUT preserves neutral continuity`() {

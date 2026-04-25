@@ -1200,12 +1200,18 @@ class LuminositySharpener {
  *
  * **Sacred render order (never reorder):**
  * ```
- * Alignment → HDR merge → Shadow denoise → Local EV → S-curve →
- * Durand bilateral TM → Face pass → Luminosity sharpen
+ * Alignment → HDR merge → Shadow denoise → MicroISP refine →
+ * COLOR SCIENCE (per-zone CCM → 3D LUT → CUSP gamut → grain) →
+ * Durand bilateral TM → Cinematic S-curve → Luminosity sharpen
  * ```
  *
  * Each stage is pure and stateless: takes input, returns output without
  * mutating shared state — enables safe concurrent use.
+ *
+ * The [ColorSciencePipelineStage] sits between white balance (calibration)
+ * and tone mapping (rendering) — see `docs/Color Science Processing.md` §2.
+ * It is optional; when null (e.g. in tests), the ISP-refined frame passes
+ * directly to tone mapping unchanged.
  */
 class ImagingPipeline(
     private val proXdrOrchestrator: com.leica.cam.imaging_pipeline.hdr.ProXdrOrchestrator,
@@ -1215,6 +1221,8 @@ class ImagingPipeline(
     private val luminositySharpener: LuminositySharpener,
     private val microIspRefiner: com.leica.cam.ai_engine.api.NeuralIspRefiner? = null,
     private val semanticSegmenter: com.leica.cam.ai_engine.api.SemanticSegmenter? = null,
+    /** ColorLM 2.0 stage: per-zone CCM + 3D LUT + CUSP gamut map + film grain. */
+    private val colorScienceStage: ColorSciencePipelineStage? = null,
 ) {
 
     fun process(
@@ -1224,6 +1232,11 @@ class ImagingPipeline(
         noiseModel: NoiseModel? = null,
         sensorId: String? = null,
         microIspEligible: Boolean = false,
+        sceneLabel: String = "auto",
+        estimatedKelvin: Float = 6500f,
+        kelvinConfidence: Float = 1.0f,
+        isMixedLight: Boolean = false,
+        captureMode: String = "auto",
     ): LeicaResult<PipelineFrame> {
         val effectiveNoise = noiseModel ?: NoiseModel.fromIsoAndExposure(
             frames.minOf { it.isoEquivalent },
@@ -1254,10 +1267,32 @@ class ImagingPipeline(
             denoised
         }
         val autoMask = semanticMask ?: autoSegment(ispRefined, frames.first().isoEquivalent)
-        val toneMapped = if (hdrResult.hdrMode == HdrMergeMode.MERTENS_FUSION) {
-            ispRefined
+
+        // ── ColorLM 2.0 color science stage ─────────────────────────────────
+        // Runs AFTER HyperTone WB (calibration) and BEFORE filmic tone mapping
+        // (rendering). This is the sacred position per docs/Color Science Processing.md §2.
+        // When colorScienceStage is null (test/preview path), passes through unchanged.
+        val colorMapped = if (colorScienceStage != null) {
+            when (val csResult = colorScienceStage.apply(
+                wbCorrected = ispRefined,
+                sceneLabel = sceneLabel,
+                estimatedKelvin = estimatedKelvin,
+                kelvinConfidence = kelvinConfidence,
+                isMixedLight = isMixedLight,
+                captureMode = captureMode,
+            )) {
+                is LeicaResult.Success -> csResult.value
+                is LeicaResult.Failure -> ispRefined  // graceful pass-through on failure
+            }
         } else {
-            toneMappingEngine.apply(ispRefined, autoMask)
+            ispRefined
+        }
+        // ─────────────────────────────────────────────────────────────────────
+
+        val toneMapped = if (hdrResult.hdrMode == HdrMergeMode.MERTENS_FUSION) {
+            colorMapped
+        } else {
+            toneMappingEngine.apply(colorMapped, autoMask)
         }
         val sCurved = sCurveEngine.apply(toneMapped, faceMask)
         val sharpened = luminositySharpener.sharpen(sCurved, amount = 0.5f, radius = 1.0f)
