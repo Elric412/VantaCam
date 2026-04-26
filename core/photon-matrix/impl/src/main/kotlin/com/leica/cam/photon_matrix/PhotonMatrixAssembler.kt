@@ -2,8 +2,11 @@ package com.leica.cam.photon_matrix
 
 import com.leica.cam.common.result.LeicaResult
 import com.leica.cam.hardware.contracts.photon.PhotonBuffer
+import javax.inject.Inject
+import javax.inject.Singleton
 
-class PhotonMatrixAssembler : IPhotonMatrixAssembler {
+@Singleton
+class PhotonMatrixAssembler @Inject constructor() : IPhotonMatrixAssembler {
     override suspend fun assemble(
         enhanced: PhotonBuffer,
         outputMode: ProXdrOutputMode,

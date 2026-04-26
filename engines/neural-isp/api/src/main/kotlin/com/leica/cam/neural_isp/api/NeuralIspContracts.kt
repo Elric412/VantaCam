@@ -10,7 +10,7 @@ interface INeuralIspOrchestrator {
 sealed class TonedBuffer {
     abstract val underlying: PhotonBuffer
 
-    data class TonedImage internal constructor(
+    data class TonedImage(
         override val underlying: PhotonBuffer,
         val toneProfile: String,
     ) : TonedBuffer()

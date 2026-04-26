@@ -8,9 +8,9 @@ import org.gradle.api.Project
 import org.gradle.api.plugins.JavaPluginExtension
 import org.gradle.kotlin.dsl.configure
 
-internal const val LeicaCompileSdk = 35
+internal const val LeicaCompileSdk = 34
 internal const val LeicaMinSdk = 29
-internal const val LeicaTargetSdk = 35
+internal const val LeicaTargetSdk = 34
 
 internal fun Project.configureKotlinCompilation() {
     extensions.configure<JavaPluginExtension> {

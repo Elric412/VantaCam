@@ -1,6 +1,8 @@
 plugins {
     id("leica.android.library")
     alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.kotlin.kapt)
+    alias(libs.plugins.hilt)
 }
 
 android {
@@ -12,4 +14,6 @@ dependencies {
     implementation(project(":photon-matrix:api"))
     implementation(project(":gpu-compute"))
     implementation(project(":native-imaging-core:api"))
+    implementation(libs.hilt.android)
+    kapt(libs.hilt.compiler)
 }

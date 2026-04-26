@@ -9,7 +9,7 @@ interface IColorLM2Engine {
 
 sealed class ColourMappedBuffer {
     abstract val underlying: FusedPhotonBuffer
-    data class Mapped internal constructor(
+    data class Mapped(
         override val underlying: FusedPhotonBuffer,
         val zoneCount: Int,
     ) : ColourMappedBuffer()

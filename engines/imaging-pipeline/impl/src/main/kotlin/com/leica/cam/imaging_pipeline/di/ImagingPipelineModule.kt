@@ -12,6 +12,7 @@ import com.leica.cam.imaging_pipeline.pipeline.ComputationalModesOrchestrator
 import com.leica.cam.imaging_pipeline.pipeline.DngMetadataComposer
 import com.leica.cam.imaging_pipeline.pipeline.DurandBilateralToneMappingEngine
 import com.leica.cam.imaging_pipeline.pipeline.FfdNetNoiseReductionEngine
+import com.leica.cam.imaging_pipeline.pipeline.FusionLM2Engine
 import com.leica.cam.imaging_pipeline.pipeline.HeicProfileSelector
 import com.leica.cam.imaging_pipeline.pipeline.ImagingPipeline
 import com.leica.cam.imaging_pipeline.pipeline.ImagingPipelineOrchestrator
@@ -28,6 +29,7 @@ import com.leica.cam.imaging_pipeline.pipeline.SeamlessZoomEngine
 import com.leica.cam.imaging_pipeline.pipeline.ShadowDenoiseEngine
 import com.leica.cam.imaging_pipeline.pipeline.SuperResolutionEngine
 import com.leica.cam.imaging_pipeline.pipeline.TimeLapseEngine
+import com.leica.cam.imaging_pipeline.pipeline.ToneLM2Engine
 import com.leica.cam.imaging_pipeline.pipeline.VideoColorProfileEngine
 import com.leica.cam.imaging_pipeline.pipeline.XmpMetadataComposer
 import dagger.Module
@@ -47,6 +49,19 @@ object ImagingPipelineModule {
     @Provides
     @Singleton
     fun provideProXdrOrchestrator(): ProXdrOrchestrator = ProXdrOrchestrator()
+
+    @Provides
+    @Singleton
+    fun provideFusionLM2Engine(): FusionLM2Engine = FusionLM2Engine()
+
+    @Provides
+    @Singleton
+    fun provideToneLM2Engine(
+        shadowDenoiser: ShadowDenoiseEngine,
+        bilateralTM: DurandBilateralToneMappingEngine,
+        sCurve: CinematicSCurveEngine,
+        sharpener: LuminositySharpener,
+    ): ToneLM2Engine = ToneLM2Engine(shadowDenoiser, bilateralTM, sCurve, sharpener)
 
     @Provides
     @Singleton

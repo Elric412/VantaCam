@@ -188,7 +188,33 @@ class AiEngineOrchestrator @Inject constructor(
         fused: FusedPhotonBuffer,
         targetWidth: Int,
         targetHeight: Int,
-    ): FloatArray = FloatArray(targetWidth * targetHeight * 3)
+    ): FloatArray {
+        val out = FloatArray(targetWidth * targetHeight * 3)
+        val srcW = fused.underlying.width
+        val srcH = fused.underlying.height
+        if (srcW == 0 || srcH == 0) return out
+
+        val planeCount = fused.underlying.planeCount()
+        val red = fused.underlying.planeView(0)
+        val green = fused.underlying.planeView(if (planeCount > 1) 1 else 0)
+        val blue = fused.underlying.planeView(if (planeCount > 2) 2 else if (planeCount > 1) 1 else 0)
+        val normalizer = 1f / 65_535f
+        val xScale = srcW.toFloat() / targetWidth
+        val yScale = srcH.toFloat() / targetHeight
+        var outIdx = 0
+
+        for (y in 0 until targetHeight) {
+            val sy = (y * yScale).toInt().coerceIn(0, srcH - 1)
+            for (x in 0 until targetWidth) {
+                val sx = (x * xScale).toInt().coerceIn(0, srcW - 1)
+                val srcIdx = sy * srcW + sx
+                out[outIdx++] = ((red.get(srcIdx).toInt() and 0xffff) * normalizer).coerceIn(0f, 1f)
+                out[outIdx++] = ((green.get(srcIdx).toInt() and 0xffff) * normalizer).coerceIn(0f, 1f)
+                out[outIdx++] = ((blue.get(srcIdx).toInt() and 0xffff) * normalizer).coerceIn(0f, 1f)
+            }
+        }
+        return out
+    }
 }
 
 @Singleton

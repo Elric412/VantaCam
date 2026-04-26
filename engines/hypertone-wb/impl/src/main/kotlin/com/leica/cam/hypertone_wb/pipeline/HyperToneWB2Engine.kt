@@ -1,7 +1,11 @@
 package com.leica.cam.hypertone_wb.pipeline
 
+import com.leica.cam.common.logging.LeicaLogger
 import com.leica.cam.common.result.LeicaResult
 import com.leica.cam.common.result.PipelineStage
+import com.leica.cam.gpu_compute.GpuBackend
+import javax.inject.Inject
+import javax.inject.Singleton
 import kotlin.math.abs
 import kotlin.math.exp
 import kotlin.math.max
@@ -26,7 +30,16 @@ import kotlin.math.sqrt
  * - Finlayson & Trezzi (2004): Shades of Gray gamut mapping
  * - Cheng et al. (2015): Illuminant estimation via CNN
  */
-class HyperToneWB2Engine {
+@Singleton
+class HyperToneWB2Engine @Inject constructor(
+    @Suppress("unused") private val ctSensor: PartitionedCTSensor,
+    @Suppress("unused") private val fusion: MultiModalIlluminantFusion,
+    @Suppress("unused") private val spatial: MixedLightSpatialWbEngine,
+    @Suppress("unused") private val temporal: WbTemporalMemory,
+    @Suppress("unused") private val guard: SkinZoneWbGuard,
+    @Suppress("unused") private val gpu: GpuBackend,
+    @Suppress("unused") private val logger: LeicaLogger,
+) {
 
     companion object {
         private const val SKIN_MAX_CCT_SHIFT_K = 300f
