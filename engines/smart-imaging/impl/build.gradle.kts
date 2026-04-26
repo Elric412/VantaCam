@@ -1,6 +1,8 @@
 plugins {
     id("leica.android.library")
     alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.kotlin.kapt)
+    alias(libs.plugins.hilt)
 }
 
 android {
@@ -20,4 +22,8 @@ dependencies {
     implementation(project(":motion-engine:api"))
     implementation(project(":bokeh-engine:api"))
     implementation(project(":neural-isp:api"))
+    implementation(project(":imaging-pipeline:impl"))
+    implementation(libs.hilt.android)
+    kapt(libs.hilt.compiler)
+    implementation(libs.kotlinx.coroutines.core)
 }

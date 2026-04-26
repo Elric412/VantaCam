@@ -4,6 +4,7 @@ import com.leica.cam.neural_isp.pipeline.ColorToneStage
 import com.leica.cam.neural_isp.pipeline.ImagePipelineProcessor
 import com.leica.cam.neural_isp.pipeline.IspRoutingProcessor
 import com.leica.cam.neural_isp.pipeline.LearnedDemosaicStage
+import com.leica.cam.neural_isp.pipeline.NeuralIspOrchestratorImpl
 import com.leica.cam.neural_isp.pipeline.NeuralIspProcessor
 import com.leica.cam.neural_isp.pipeline.RawDenoiseStage
 import com.leica.cam.neural_isp.pipeline.SemanticEnhancementStage
@@ -63,4 +64,10 @@ object NeuralIspModule {
         @Named("neural_processor") neuralProcessor: ImagePipelineProcessor,
         @Named("traditional_processor") traditionalProcessor: ImagePipelineProcessor,
     ): ImagePipelineProcessor = IspRoutingProcessor(neuralProcessor, traditionalProcessor)
+
+    @Provides
+    @Singleton
+    fun provideNeuralIspOrchestrator(
+        impl: NeuralIspOrchestratorImpl,
+    ): com.leica.cam.neural_isp.api.INeuralIspOrchestrator = impl
 }

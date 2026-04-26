@@ -14,7 +14,7 @@ interface IHyperToneWB2Engine {
 
 sealed class WbCorrectedBuffer {
     abstract val underlying: FusedPhotonBuffer
-    data class Corrected internal constructor(
+    data class Corrected(
         override val underlying: FusedPhotonBuffer,
         val dominantKelvin: Float,
     ) : WbCorrectedBuffer()

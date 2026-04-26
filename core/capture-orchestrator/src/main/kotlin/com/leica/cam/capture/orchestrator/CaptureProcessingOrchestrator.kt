@@ -29,6 +29,11 @@ import com.leica.cam.color_science.api.ColourMappedBuffer
 import com.leica.cam.color_science.api.IColorLM2Engine
 import com.leica.cam.color_science.api.IlluminantHint
 import com.leica.cam.color_science.api.SceneContext
+import com.leica.cam.imaging_pipeline.api.UserHdrMode
+import com.leica.cam.imaging_pipeline.hdr.ProXdrOrchestrator
+import com.leica.cam.imaging_pipeline.pipeline.FusionLM2Engine
+import com.leica.cam.imaging_pipeline.pipeline.NoiseModel
+import com.leica.cam.imaging_pipeline.pipeline.ToneLM2Engine
 import com.leica.cam.common.logging.LeicaLogger
 import com.leica.cam.common.result.LeicaResult
 import com.leica.cam.common.result.PipelineStage
@@ -42,6 +47,7 @@ import com.leica.cam.hypertone_wb.api.IHyperToneWB2Engine
 import com.leica.cam.hypertone_wb.api.IlluminantMap
 import com.leica.cam.hypertone_wb.api.SkinZoneMap
 import com.leica.cam.hypertone_wb.api.WbCorrectedBuffer
+import com.leica.cam.hypertone_wb.pipeline.HyperToneWhiteBalanceEngine
 import com.leica.cam.motion_engine.api.IMotionEngine
 import com.leica.cam.motion_engine.api.MotionConfig
 import com.leica.cam.neural_isp.api.INeuralIspOrchestrator
@@ -57,7 +63,6 @@ import com.leica.cam.sensor_hal.autofocus.HybridAutoFocusEngine
 import com.leica.cam.sensor_hal.isp.IspIntegrationOrchestrator
 import com.leica.cam.sensor_hal.metering.AdvancedMeteringEngine
 import com.leica.cam.sensor_hal.zsl.ZeroShutterLagRingBuffer
-import com.leica.cam.smart_imaging.FusionConfig
 import com.leica.cam.smart_imaging.LumoCapturePlan
 import com.leica.cam.smart_imaging.LumoOutputPackage
 import com.leica.cam.smart_imaging.ToneConfig
@@ -124,6 +129,10 @@ class CaptureProcessingOrchestrator @Inject constructor(
     private val budgetManager: ProcessingBudgetManager,
     private val perHueHslEngine: PerHueHslEngine,
     private val cam16Model: Cam16ColorAppearanceModel,
+    private val fusionEngine: FusionLM2Engine,
+    private val toneEngine: ToneLM2Engine,
+    private val proXdrOrchestrator: ProXdrOrchestrator,
+    private val hyperToneWbEngine: HyperToneWhiteBalanceEngine,
     private val logger: LeicaLogger,
     private val io: CoroutineDispatcher,
 ) {
@@ -243,6 +252,11 @@ class CaptureProcessingOrchestrator @Inject constructor(
         logger.info(TAG, "Fusion complete: quality=${fused.fusionQuality}, " +
             "frameCount=${fused.frameCount}")
 
+        val postHdr = runProXdrIfNeeded(aligned, fused, hdrMode, captureRequest)
+        if (postHdr !== fused) {
+            logger.info(TAG, "ProXDR applied: quality=${postHdr.fusionQuality}, frameCount=${postHdr.frameCount}")
+        }
+
         // ──────────────────────────────────────────────────────────────────
         // Stage 7: Parallel AI Analysis
         //   - Scene classification & shot quality
@@ -250,7 +264,7 @@ class CaptureProcessingOrchestrator @Inject constructor(
         //   - Depth estimation
         //   - Face detection & landmark analysis
         // ──────────────────────────────────────────────────────────────────
-        val parallelResults = runParallelAnalysis(fused, captureRequest, halStages)
+        val parallelResults = runParallelAnalysis(postHdr, captureRequest, halStages)
             .getOrElse { return@withContext it }
         logger.info(TAG, "AI analysis: scene=${parallelResults.scene.sceneLabel}, " +
             "faces=${parallelResults.face.faceCount}, depth=${parallelResults.depth != null}")
@@ -263,7 +277,7 @@ class CaptureProcessingOrchestrator @Inject constructor(
         //   - Temporal consistency
         // ──────────────────────────────────────────────────────────────────
         val wbResult = runWhiteBalanceCorrection(
-            parallelResults, ispDecision, captureRequest,
+            parallelResults, ispDecision, captureRequest, postHdr,
         ).getOrElse { return@withContext it }
         logger.info(TAG, "HyperTone WB applied")
 
@@ -296,12 +310,8 @@ class CaptureProcessingOrchestrator @Inject constructor(
         //   D. Shadow lift (avoid pure blacks)
         //   E. Adaptive Contrast Enhancement (DoG)
         // ──────────────────────────────────────────────────────────────────
-        val toneMapped = perceptualToneMapper.map(
-            buffer = wbResult,
-            scene = parallelResults.scene,
-            toneConfig = captureRequest.toneConfig,
-        )
-        logger.info(TAG, "Perceptual tone mapping applied (Stages A-E)")
+        val toneMapped = runToneMapping(wbResult, parallelResults, captureRequest)
+        logger.info(TAG, "Perceptual tone mapping applied (ToneLM2 with local fallback)")
 
         // ──────────────────────────────────────────────────────────────────
         // Stage 11: Neural ISP Enhancement (or Traditional Fallback)
@@ -318,7 +328,8 @@ class CaptureProcessingOrchestrator @Inject constructor(
         } else {
             toneMapped.underlying
         }
-        logger.info(TAG, "ISP enhancement: ${if (ispDecision.useNeuralIsp) "Neural" else "Traditional"}")
+        logger.info(TAG, "ISP enhancement: ${if (ispDecision.useNeuralIsp) "Neural" else "Traditional"} " +
+            "(MicroISP sensor-id gate: TODO — see processing-problems.md §MicroISP)")
 
         // ──────────────────────────────────────────────────────────────────
         // Stage 11b: Dehaze & Clarity Enhancement
@@ -500,18 +511,58 @@ class CaptureProcessingOrchestrator @Inject constructor(
     // Multi-Frame Fusion
     // ──────────────────────────────────────────────────────────────────────
 
-    private fun fusionFrames(
+    private suspend fun fusionFrames(
         aligned: com.leica.cam.motion_engine.api.AlignedBuffer,
         request: CaptureRequest,
     ): FusedPhotonBuffer {
-        val firstFrame = aligned.frames.first()
-        val fusionQuality = if (aligned.frames.size >= FUSION_MIN_FRAMES) 1.0f else 0.7f
-        return FusedPhotonBuffer(
-            underlying = firstFrame,
-            fusionQuality = fusionQuality,
-            frameCount = aligned.frames.size,
+        val frames = aligned.frames.map { it.toPipelineFrame() }
+        val reference = frames.first()
+        val noiseModel = NoiseModel.fromIsoAndExposure(reference.isoEquivalent, reference.exposureTimeNs)
+        val config = FusionLM2Engine.FusionConfig.auto(
+            sceneLuminance = reference.meanLuminance(),
             motionMagnitude = 0f,
         )
+        return when (val result = fusionEngine.merge(frames, noiseModel, config)) {
+            is LeicaResult.Success -> FusedPhotonBuffer(
+                underlying = result.value.toPhotonBuffer(),
+                fusionQuality = if (aligned.frames.size >= FUSION_MIN_FRAMES) 1.0f else 0.7f,
+                frameCount = aligned.frames.size,
+                motionMagnitude = 0f,
+            )
+            is LeicaResult.Failure -> {
+                logger.warn(TAG, "FusionLM2 failed: ${result.message}; falling back to first frame")
+                FusedPhotonBuffer(
+                    underlying = aligned.frames.first(),
+                    fusionQuality = 0.5f,
+                    frameCount = aligned.frames.size,
+                    motionMagnitude = 0f,
+                )
+            }
+        }
+    }
+
+    private fun runProXdrIfNeeded(
+        aligned: com.leica.cam.motion_engine.api.AlignedBuffer,
+        fused: FusedPhotonBuffer,
+        hdrMode: HdrMode,
+        request: CaptureRequest,
+    ): FusedPhotonBuffer {
+        if (hdrMode != HdrMode.PRO_XDR && hdrMode != HdrMode.ON) return fused
+        val frames = aligned.frames.map { it.toPipelineFrame() }
+        return when (val result = proXdrOrchestrator.process(
+            frames = frames,
+            noiseModel = NoiseModel.fromIsoAndExposure(100, 16_666_666L),
+            userHdrMode = hdrMode.toUserHdrMode(),
+        )) {
+            is LeicaResult.Success -> fused.copy(
+                underlying = result.value.mergedFrame.toPhotonBuffer(),
+                fusionQuality = 1.0f,
+            )
+            is LeicaResult.Failure -> {
+                logger.warn(TAG, "ProXDR failed: ${result.message}; continuing with fused frame")
+                fused
+            }
+        }
     }
 
     // ──────────────────────────────────────────────────────────────────────
@@ -579,7 +630,30 @@ class CaptureProcessingOrchestrator @Inject constructor(
         results: ParallelAnalysisResults,
         ispDecision: CaptureTimeIspRouter.IspRoutingDecision,
         request: CaptureRequest,
+        fused: FusedPhotonBuffer,
     ): LeicaResult<TonedBuffer> {
+        val frame = fused.toRgbFrame()
+        val neuralWbFrame = when (val result = hyperToneWbEngine.process(
+            frame = frame,
+            sensorToXyz3x3 = identitySensorToXyz3x3(),
+            sceneContext = null,
+            skinMask = results.face.skinZones.toBooleanMask(frame.size()),
+            wbBias = null,
+        )) {
+            is LeicaResult.Success -> result.value
+            is LeicaResult.Failure -> {
+                logger.warn(TAG, "Neural AWB pass failed: ${result.message}; using fused frame")
+                frame
+            }
+        }
+
+        val correctedFused = neuralWbFrame.toFusedPhotonBuffer(fused)
+        val colourForWb = ColourMappedBuffer.Mapped(
+            underlying = correctedFused,
+            zoneCount = when (results.colour) {
+                is ColourMappedBuffer.Mapped -> results.colour.zoneCount
+            },
+        )
         val skinZones = SkinZoneMap(
             results.face.skinZones.width,
             results.face.skinZones.height,
@@ -589,15 +663,34 @@ class CaptureProcessingOrchestrator @Inject constructor(
             tiles = emptyList(),
             dominantKelvin = results.scene.illuminantHint.estimatedKelvin,
         )
-        val wbCorrected = wbEngine.correct(results.colour, skinZones, illuminantMap)
+        val wbCorrected = wbEngine.correct(colourForWb, skinZones, illuminantMap)
             .getOrElse { return it }
 
-        // Convert to TonedBuffer for the tone mapping stage
         val underlying = when (wbCorrected) {
             is WbCorrectedBuffer.Corrected -> wbCorrected.underlying
         }
         return LeicaResult.Success(
-            TonedBuffer.TonedImage(underlying, request.toneConfig.profile),
+            TonedBuffer.TonedImage(underlying.underlying, request.toneConfig.profile),
+        )
+    }
+
+    private fun runToneMapping(
+        wbResult: TonedBuffer,
+        parallelResults: ParallelAnalysisResults,
+        captureRequest: CaptureRequest,
+    ): TonedBuffer = try {
+        val input = wbResult.underlying.toPipelineFrame()
+        val rendered = toneEngine.render(
+            input = input,
+            noiseModel = NoiseModel.fromIsoAndExposure(input.isoEquivalent, input.exposureTimeNs),
+        )
+        TonedBuffer.TonedImage(rendered.toPhotonBuffer(), captureRequest.toneConfig.profile)
+    } catch (throwable: Throwable) {
+        logger.warn(TAG, "ToneLM2 failed: ${throwable.message}; falling back to PerceptualToneMapper", throwable)
+        perceptualToneMapper.map(
+            buffer = wbResult,
+            scene = parallelResults.scene,
+            toneConfig = captureRequest.toneConfig,
         )
     }
 
@@ -612,6 +705,13 @@ class CaptureProcessingOrchestrator @Inject constructor(
         val depth = results.depth
             ?: return LeicaResult.Success(BokehResult.Skipped("No depth map available"))
         return bokehEngine.compute(depth, results.face.subjectBoundary, BokehConfig())
+    }
+
+    private fun HdrMode.toUserHdrMode(): UserHdrMode = when (this) {
+        HdrMode.OFF -> UserHdrMode.OFF
+        HdrMode.ON -> UserHdrMode.ON
+        HdrMode.AUTO, HdrMode.SMART -> UserHdrMode.SMART
+        HdrMode.PRO_XDR -> UserHdrMode.PRO_XDR
     }
 
     companion object {

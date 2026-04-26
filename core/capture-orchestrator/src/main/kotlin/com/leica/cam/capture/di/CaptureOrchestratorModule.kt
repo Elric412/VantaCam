@@ -24,6 +24,10 @@ import com.leica.cam.common.logging.LeicaLogger
 import com.leica.cam.depth_engine.api.IDepthEngine
 import com.leica.cam.face_engine.api.IFaceEngine
 import com.leica.cam.hypertone_wb.api.IHyperToneWB2Engine
+import com.leica.cam.hypertone_wb.pipeline.HyperToneWhiteBalanceEngine
+import com.leica.cam.imaging_pipeline.hdr.ProXdrOrchestrator
+import com.leica.cam.imaging_pipeline.pipeline.FusionLM2Engine
+import com.leica.cam.imaging_pipeline.pipeline.ToneLM2Engine
 import com.leica.cam.motion_engine.api.IMotionEngine
 import com.leica.cam.neural_isp.api.INeuralIspOrchestrator
 import com.leica.cam.photon_matrix.IPhotonMatrixAssembler
@@ -215,6 +219,10 @@ object CaptureOrchestratorModule {
         budgetManager: ProcessingBudgetManager,
         perHueHslEngine: PerHueHslEngine,
         cam16Model: Cam16ColorAppearanceModel,
+        fusionEngine: FusionLM2Engine,
+        toneEngine: ToneLM2Engine,
+        proXdrOrchestrator: ProXdrOrchestrator,
+        hyperToneWbEngine: HyperToneWhiteBalanceEngine,
         logger: LeicaLogger,
         @Named("capture_io_dispatcher") io: CoroutineDispatcher,
     ): CaptureProcessingOrchestrator =
@@ -247,6 +255,10 @@ object CaptureOrchestratorModule {
             budgetManager = budgetManager,
             perHueHslEngine = perHueHslEngine,
             cam16Model = cam16Model,
+            fusionEngine = fusionEngine,
+            toneEngine = toneEngine,
+            proXdrOrchestrator = proXdrOrchestrator,
+            hyperToneWbEngine = hyperToneWbEngine,
             logger = logger,
             io = io,
         )

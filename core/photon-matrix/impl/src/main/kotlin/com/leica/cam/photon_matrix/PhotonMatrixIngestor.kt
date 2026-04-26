@@ -3,8 +3,11 @@ package com.leica.cam.photon_matrix
 import com.leica.cam.common.result.LeicaResult
 import com.leica.cam.common.types.NonEmptyList
 import com.leica.cam.hardware.contracts.photon.PhotonBuffer
+import javax.inject.Inject
+import javax.inject.Singleton
 
-class PhotonMatrixIngestor : IPhotonMatrixIngestor {
+@Singleton
+class PhotonMatrixIngestor @Inject constructor() : IPhotonMatrixIngestor {
     override suspend fun ingest(frames: NonEmptyList<Any>): LeicaResult<PhotonBuffer> {
         val width = 4032
         val height = 3024

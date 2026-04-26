@@ -1,7 +1,5 @@
 package com.leica.cam.hypertone_wb.di
 
-import com.leica.cam.common.logging.LeicaLogger
-import com.leica.cam.gpu_compute.GpuBackend
 import com.leica.cam.hardware.contracts.TrueColourHardwareSensor
 import com.leica.cam.hypertone_wb.pipeline.*
 import dagger.Module
@@ -48,15 +46,9 @@ object HypertoneWbModule {
 
     @Provides
     @Singleton
-    fun provideHyperToneWB2Engine(
-        sensor: PartitionedCTSensor,
-        fusion: MultiModalIlluminantFusion,
-        spatial: MixedLightSpatialWbEngine,
-        temporal: WbTemporalMemory,
-        guard: SkinZoneWbGuard,
-        gpu: GpuBackend,
-        logger: LeicaLogger,
-    ) = HyperToneWB2Engine(sensor, fusion, spatial, temporal, guard, gpu, logger)
+    fun provideIHyperToneWB2Engine(
+        adapter: HyperToneWB2EngineAdapter,
+    ): com.leica.cam.hypertone_wb.api.IHyperToneWB2Engine = adapter
 
     @Provides @Named("hypertone_wb_module") fun provideModuleName(): String = "hypertone-wb"
 }
