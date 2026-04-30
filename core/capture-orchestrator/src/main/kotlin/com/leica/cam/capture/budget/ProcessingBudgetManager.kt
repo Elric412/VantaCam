@@ -54,7 +54,7 @@ class ProcessingBudgetManager(
             ThermalTier.FULL -> BUDGET_FULL
             ThermalTier.REDUCED -> BUDGET_REDUCED
             ThermalTier.MINIMAL -> BUDGET_MINIMAL
-            ThermalTier.EMERGENCY -> BUDGET_EMERGENCY
+            ThermalTier.EMERGENCY_STOP -> BUDGET_EMERGENCY
         }
 
         // Adjust for available memory
@@ -70,7 +70,7 @@ class ProcessingBudgetManager(
             !memoryPressure &&
             !deviceState.isVideoMode
 
-        val enableDepthEstimation = thermalTier != ThermalTier.EMERGENCY &&
+        val enableDepthEstimation = thermalTier != ThermalTier.EMERGENCY_STOP &&
             thermalTier != ThermalTier.MINIMAL
 
         val hdrFrameCount = computeHdrFrameCount(thermalTier, deviceState, baseBudget)
@@ -81,14 +81,14 @@ class ProcessingBudgetManager(
             ThermalTier.FULL -> AI_INFERENCE_RATE_FULL
             ThermalTier.REDUCED -> AI_INFERENCE_RATE_REDUCED
             ThermalTier.MINIMAL -> AI_INFERENCE_RATE_MINIMAL
-            ThermalTier.EMERGENCY -> 0f
+            ThermalTier.EMERGENCY_STOP -> 0f
         }
 
         val videoBitrateMultiplier = when (thermalTier) {
             ThermalTier.FULL -> 1f
             ThermalTier.REDUCED -> 0.8f
             ThermalTier.MINIMAL -> 0.6f
-            ThermalTier.EMERGENCY -> 0f
+            ThermalTier.EMERGENCY_STOP -> 0f
         }
 
         val budget = ProcessingBudget(
@@ -102,13 +102,13 @@ class ProcessingBudgetManager(
             aiInferenceRateHz = aiInferenceRateHz,
             videoBitrateMultiplier = videoBitrateMultiplier,
             maxVideoBitrateMbps = if (thermalTier == ThermalTier.MINIMAL) 25f else 100f,
-            shouldPauseCamera = thermalTier == ThermalTier.EMERGENCY,
-            shouldStopVideoRecording = thermalTier == ThermalTier.EMERGENCY,
+            shouldPauseCamera = thermalTier == ThermalTier.EMERGENCY_STOP,
+            shouldStopVideoRecording = thermalTier == ThermalTier.EMERGENCY_STOP,
             userWarningRequired = thermalTier == ThermalTier.MINIMAL ||
-                thermalTier == ThermalTier.EMERGENCY,
+                thermalTier == ThermalTier.EMERGENCY_STOP,
             warningMessage = when (thermalTier) {
                 ThermalTier.MINIMAL -> "Camera performance reduced to prevent overheating."
-                ThermalTier.EMERGENCY -> "Camera paused due to critical temperature. " +
+                ThermalTier.EMERGENCY_STOP -> "Camera paused due to critical temperature. " +
                     "Please wait for the device to cool down."
                 else -> null
             },
@@ -166,7 +166,7 @@ class ProcessingBudgetManager(
         return when {
             state.thermalHeadroom < THERMAL_HEADROOM_CRITICAL ||
                 state.gpuTemperatureCelsius > GPU_TEMP_CRITICAL ->
-                ThermalTier.EMERGENCY
+                ThermalTier.EMERGENCY_STOP
 
             state.thermalHeadroom < THERMAL_HEADROOM_SEVERE ||
                 state.gpuTemperatureCelsius > GPU_TEMP_SEVERE ->
@@ -194,11 +194,11 @@ class ProcessingBudgetManager(
         }
         ThermalTier.REDUCED -> 5
         ThermalTier.MINIMAL -> 3
-        ThermalTier.EMERGENCY -> 1
+        ThermalTier.EMERGENCY_STOP -> 1
     }
 
     private fun computeNrQuality(tier: ThermalTier, budget: BudgetTemplate): NRQuality = when {
-        tier == ThermalTier.EMERGENCY -> NRQuality.NONE
+        tier == ThermalTier.EMERGENCY_STOP -> NRQuality.NONE
         tier == ThermalTier.MINIMAL -> NRQuality.FAST
         budget.totalTimeMs > 3000 -> NRQuality.FULL
         else -> NRQuality.FAST

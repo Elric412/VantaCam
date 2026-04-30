@@ -5,8 +5,30 @@ plugins {
     alias(libs.plugins.hilt)
 }
 
+// ── Signing configuration ─────────────────────────────────────────────────
+val keystorePropertiesFile = rootProject.file("android/key.properties")
+val keystoreProperties = if (keystorePropertiesFile.exists()) {
+    keystorePropertiesFile.readLines()
+        .filter { it.contains("=") && !it.startsWith("#") }
+        .associate { line ->
+            val idx = line.indexOf('=')
+            line.substring(0, idx).trim() to line.substring(idx + 1).trim()
+        }
+} else {
+    emptyMap()
+}
+
 android {
     namespace = "com.leica.cam"
+
+    signingConfigs {
+        create("release") {
+            storeFile = rootProject.file("android/release-key.jks")
+            storePassword = keystoreProperties["storePassword"] ?: ""
+            keyAlias = keystoreProperties["keyAlias"] ?: "release"
+            keyPassword = keystoreProperties["keyPassword"] ?: ""
+        }
+    }
 
     defaultConfig {
         applicationId = "com.leica.cam"
@@ -30,6 +52,7 @@ android {
         }
         release {
             isMinifyEnabled = true
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
@@ -98,6 +121,8 @@ dependencies {
     implementation(project(":motion-engine:impl"))
     implementation(project(":native-imaging-core:impl"))
     implementation(project(":camera-core:impl"))
+    implementation(project(":hardware-contracts"))
+    implementation(project(":common"))
     implementation(libs.androidx.navigation.compose)
     implementation(libs.accompanist.permissions)
     implementation(project(":feature:camera"))
@@ -112,6 +137,7 @@ dependencies {
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
+    implementation(libs.androidx.compose.animation)
     implementation(libs.androidx.hilt.navigation.compose)
 
     implementation(libs.hilt.android)

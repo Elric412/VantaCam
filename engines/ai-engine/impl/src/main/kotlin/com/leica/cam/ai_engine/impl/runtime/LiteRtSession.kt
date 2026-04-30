@@ -1,8 +1,8 @@
 package com.leica.cam.ai_engine.impl.runtime
 
-import com.google.ai.edge.litert.Interpreter
-import com.google.ai.edge.litert.InterpreterOptions
-import com.google.ai.edge.litert.gpu.GpuDelegateFactory
+import org.tensorflow.lite.Interpreter
+import org.tensorflow.lite.Interpreter.Options as InterpreterOptions
+import org.tensorflow.lite.gpu.GpuDelegate
 import com.leica.cam.common.result.LeicaResult
 import com.leica.cam.common.result.PipelineStage
 import java.nio.ByteBuffer
@@ -104,10 +104,13 @@ class LiteRtSession private constructor(
         ): LiteRtSession {
             val options = InterpreterOptions()
             val delegateHandle = when (kind) {
-                DelegateKind.GPU -> GpuDelegateFactory.create().also { options.addDelegate(it) }
+                DelegateKind.GPU -> {
+                    val gpuDelegate = GpuDelegate()
+                    options.addDelegate(gpuDelegate)
+                    gpuDelegate
+                }
                 DelegateKind.XNNPACK_CPU -> {
                     options.setNumThreads(Runtime.getRuntime().availableProcessors().coerceAtMost(4))
-                    options.setUseXNNPACK(true)
                     null
                 }
                 DelegateKind.MTK_APU,

@@ -41,6 +41,7 @@ dependencies {
     implementation(project(":neural-isp:api"))
     implementation(project(":smart-imaging:api"))
     implementation(project(":sensor-hal"))
+    implementation(project(":capture-orchestrator"))
     implementation(project(":ui-components"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.kotlinx.coroutines.core)
@@ -52,6 +53,7 @@ dependencies {
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
+    implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.androidx.hilt.navigation.compose)
 
     testImplementation(libs.junit)

@@ -1,12 +1,5 @@
 package com.leica.cam.hypertone_wb.pipeline
 
-data class SceneContext(
-    val sceneCategory: String,
-    val hourBucket: Int,
-    val locationGeohash: String,
-    val timestampMillis: Long,
-)
-
 data class StoredWbEstimate(
     val cctKelvin: Float,
     val tint: Float,
@@ -26,7 +19,8 @@ data class RgbFrame(
     val green: FloatArray,
     val blue: FloatArray,
 ) {
-    fun size(): Int = width * height
+    val pixelCount: Int = width * height
+    fun size(): Int = pixelCount
     fun luminanceAt(index: Int): Float =
         (red[index] * 0.2126f + green[index] * 0.7152f + blue[index] * 0.0722f).coerceIn(0f, 1f)
 }

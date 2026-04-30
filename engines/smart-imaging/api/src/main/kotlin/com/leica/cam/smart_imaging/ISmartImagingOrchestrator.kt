@@ -1,14 +1,13 @@
 package com.leica.cam.smart_imaging
 
 import com.leica.cam.common.result.LeicaResult
-import com.leica.cam.common.types.NonEmptyList
 import com.leica.cam.hardware.contracts.photon.PhotonBuffer
 import com.leica.cam.photon_matrix.ProXdrOutputMode
 import java.io.Closeable
 
 interface ISmartImagingOrchestrator {
     suspend fun processCapture(
-        frames: NonEmptyList<Any>,
+        frames: List<PhotonBuffer>,
         plan: LumoCapturePlan,
     ): LeicaResult<LumoOutputPackage>
 }
@@ -40,7 +39,7 @@ data class ToneConfig(
 )
 
 sealed class LumoOutputPackage : Closeable {
-    data class Complete internal constructor(
+    data class Complete(
         val finalBuffer: PhotonBuffer,
         val bokehMask: com.leica.cam.bokeh_engine.api.BokehMask?,
         val captureMetadata: CaptureMetadata,

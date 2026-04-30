@@ -13,7 +13,7 @@ interface IBokehEngine {
 }
 
 sealed class BokehResult {
-    data class Rendered internal constructor(
+    data class Rendered(
         val bokehMask: BokehMask,
         val compositeBuffer: FloatArray,
     ) : BokehResult()

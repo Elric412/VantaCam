@@ -3,6 +3,7 @@ package com.leica.cam.capture.lut
 import com.leica.cam.hardware.contracts.photon.PhotonBuffer
 import kotlin.math.floor
 import kotlin.math.min
+import kotlin.math.pow
 
 /**
  * 3D LUT Engine with tetrahedral interpolation from Implementation.md.

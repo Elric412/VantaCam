@@ -254,9 +254,14 @@ class HyperToneWB2Engine @Inject constructor(
         val peakBin = histogram.indices.maxByOrNull { histogram[it] } ?: 27
         val peakCct = binMin + (peakBin + 0.5f) * binWidth
 
-        return RobertsonCctEstimator.estimate(
-            *cctToUv(peakCct).let { (u, v) -> floatArrayOf(u, v) },
-        ).let { RobertsonCctEstimator.CctEstimate(peakCct, it.duv, histogram[peakBin] / totalWeight) }
+        return RobertsonCctEstimator.CctEstimate(
+            cctKelvin = peakCct,
+            duv = run {
+                val (u, v) = cctToUv(peakCct)
+                RobertsonCctEstimator.estimateFromUv(u, v).duv
+            },
+            confidence = histogram[peakBin] / totalWeight,
+        )
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -286,8 +291,9 @@ class HyperToneWB2Engine @Inject constructor(
         val bGain = FloatArray(n) { cctToRgbGain(globalCct).third }
 
         // Zone-specific local corrections (when semantic map is available)
-        if (sceneContext?.zoneMap != null) {
-            applyZoneCorrections(rGain, gGain, bGain, sceneContext, globalCct, frame)
+        val ctx = sceneContext
+        if (ctx?.zoneMap != null) {
+            applyZoneCorrections(rGain, gGain, bGain, ctx, globalCct, frame)
         }
 
         // Bilateral smooth the gain field to eliminate zone boundary halos
@@ -302,8 +308,10 @@ class HyperToneWB2Engine @Inject constructor(
         rGain: FloatArray, gGain: FloatArray, bGain: FloatArray,
         ctx: SceneContext, globalCct: Float, frame: RgbFrame,
     ) {
+        val zoneArray = ctx.zoneMap ?: return
         for (i in 0 until frame.pixelCount) {
-            val zone = ctx.zoneMap[i]
+            val zoneIdx = zoneArray[i].coerceIn(0, ZoneLabel.values().lastIndex)
+            val zone = ZoneLabel.values()[zoneIdx]
             val zoneCct = when (zone) {
                 ZoneLabel.SKY -> (globalCct * 1.05f).coerceAtMost(10000f)
                 ZoneLabel.LAMP -> (globalCct * 0.85f).coerceAtLeast(2700f)
@@ -406,9 +414,11 @@ class HyperToneWB2Engine @Inject constructor(
         return u to v
     }
 
-    // Overload for vararg — used internally for histogram peak
-    private fun RobertsonCctEstimator.Companion.estimate(vararg uv: Float) =
-        RobertsonCctEstimator.estimateFromUv(uv[0], uv[1])
+    private fun computeTintGreenGain(duvTint: Float, strength: Float = 1.0f): Float {
+        // D_uv tint: positive = green cast, negative = magenta cast
+        // Green gain: counter the green cast (1.0 = neutral, < 1.0 = more magenta)
+        return (1f - duvTint * strength * 10f).coerceIn(0.5f, 2.0f)
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -427,19 +437,4 @@ enum class ZoneLabel { FACE, PERSON, SKY, LAMP, FOLIAGE, NEUTRAL, UNKNOWN }
 data class SceneContext(
     val zoneMap: IntArray? = null,  // Values index into ZoneLabel.values()
     val faceRegions: List<FloatArray> = emptyList(),
-) {
-    /** Get zone label at pixel index [i]. */
-    val IntArray.zoneAt: (Int) -> ZoneLabel get() = { i ->
-        val v = this[i].coerceIn(0, ZoneLabel.values().lastIndex)
-        ZoneLabel.values()[v]
-    }
-}
-
-private val IntArray.zoneAt: (Int) -> ZoneLabel get() = { i ->
-    val v = this[i].coerceIn(0, ZoneLabel.values().lastIndex)
-    ZoneLabel.values()[v]
-}
-
-private operator fun IntArray.get(ctx: SceneContext, i: Int): ZoneLabel = zoneAt(i)
-private val SceneContext.zoneMap get() = this.zoneMap
-private operator fun IntArray.invoke(i: Int): ZoneLabel = zoneAt(i)
+)

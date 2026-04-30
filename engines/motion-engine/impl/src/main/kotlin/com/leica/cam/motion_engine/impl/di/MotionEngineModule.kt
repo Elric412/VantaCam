@@ -1,6 +1,11 @@
 package com.leica.cam.motion_engine.impl.di
 
 import com.leica.cam.motion_engine.api.IMotionEngine
+import com.leica.cam.motion_engine.impl.FusionQualityArbiter
+import com.leica.cam.motion_engine.impl.LightningSnapArbiter
+import com.leica.cam.motion_engine.impl.MotionDeblurEngine
+import com.leica.cam.motion_engine.impl.MotionEngine
+import com.leica.cam.motion_engine.impl.RawFrameAligner
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn

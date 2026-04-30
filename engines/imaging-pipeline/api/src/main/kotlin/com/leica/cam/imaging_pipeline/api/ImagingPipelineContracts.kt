@@ -1,11 +1,11 @@
 package com.leica.cam.imaging_pipeline.api
 
-import com.leica.cam.common.types.NonEmptyList
+import com.leica.cam.hardware.contracts.photon.PhotonBuffer
 import kotlinx.coroutines.flow.Flow
 
 interface IImagingPipeline {
     fun processCapture(
-        frames: NonEmptyList<Any>,
+        frames: List<PhotonBuffer>,
         plan: PipelinePlan,
     ): Flow<PipelineStageEvent>
 }

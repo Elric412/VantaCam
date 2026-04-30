@@ -32,7 +32,7 @@ import javax.inject.Singleton
 @Singleton
 class AwbModelRunner @Inject constructor(
     private val registry: ModelRegistry,
-    @Named("assetBytes") private val assetBytes: (path: String) -> ByteBuffer,
+    @Named("assetBytes") private val assetBytes: @JvmSuppressWildcards (path: String) -> ByteBuffer,
 ) : AutoCloseable, AwbPredictor {
 
     @Volatile private var session: LiteRtSession? = null

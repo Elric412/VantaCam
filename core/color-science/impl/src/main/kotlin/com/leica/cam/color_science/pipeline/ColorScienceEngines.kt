@@ -110,22 +110,8 @@ data class ColorProfileSpec(
     val zoneDelta: Map<ColourZone, ZoneCcmDelta> = emptyMap(),
 )
 
-/** Tone curve + grain parameters for a colour profile. */
-data class ProfileLook(
-    val shadowLift: Float,
-    val shoulderStrength: Float,
-    val globalSaturationScale: Float,
-    val greenDesaturation: Float,
-    val redContrastBoost: Float,
-    val warmShiftKelvinEquivalent: Float,
-    val defaultGrain: FilmGrainSettings,
-)
-
-data class FilmGrainSettings(
-    val amount: Float,
-    val grainSizePx: Float,
-    val colorVariation: Float,
-)
+/** Tone curve + grain parameters for a colour profile (alias — defined in ColorScienceModels.kt). */
+// ProfileLook and FilmGrainSettings defined in ColorScienceModels.kt in the same package.
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Profile library — Leica + Hasselblad profiles

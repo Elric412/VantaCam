@@ -67,8 +67,8 @@ class FaceMeshEngine @Inject constructor() {
 @Singleton
 class SkinZoneMapper @Inject constructor() {
     fun map(fused: FusedPhotonBuffer, meshes: List<FaceMeshResult>): SkinZoneMap {
-        val width = fused.width
-        val height = fused.height
+        val width = fused.underlying.width
+        val height = fused.underlying.height
         // In production: pixel-level skin labelling from face mesh
         return SkinZoneMap(
             width = width,

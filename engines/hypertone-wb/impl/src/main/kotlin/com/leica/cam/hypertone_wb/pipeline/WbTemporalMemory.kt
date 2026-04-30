@@ -17,9 +17,10 @@ class WbTemporalMemory(
     fun applySceneMemoryBlend(cctKelvin: Float, tint: Float, sceneContext: SceneContext?): Pair<Float, Float> {
         if (sceneContext == null) return cctKelvin to tint
         val sceneHash = computeSceneHash(sceneContext)
+        val now = System.currentTimeMillis()
         val match = memoryStore
             .loadRecent(maxHistory)
-            .firstOrNull { it.sceneHash == sceneHash && (sceneContext.timestampMillis - it.timestampMillis) in 0..maxMemoryAgeMillis }
+            .firstOrNull { it.sceneHash == sceneHash && (now - it.timestampMillis) in 0..maxMemoryAgeMillis }
             ?: return cctKelvin to tint
 
         val blendedCct = cctKelvin * (1f - memoryBlendFactor) + match.cctKelvin * memoryBlendFactor
@@ -36,7 +37,6 @@ class WbTemporalMemory(
             return cctKelvin to tint
         }
 
-        // Exponential Kalman filter: Q=0.01, R=0.05
         kalmanP = kalmanP + kalmanQ
         val kalmanK = kalmanP / (kalmanP + kalmanR)
         val nextCct = previousCct + kalmanK * (cctKelvin - previousCct)
@@ -54,13 +54,17 @@ class WbTemporalMemory(
             cctKelvin = cctKelvin,
             tint = tint,
             sceneHash = computeSceneHash(sceneContext),
-            timestampMillis = sceneContext.timestampMillis,
+            timestampMillis = System.currentTimeMillis(),
         )
         memoryStore.save(estimate)
     }
 
-    fun computeSceneHash(sceneContext: SceneContext): String =
-        "${sceneContext.sceneCategory.lowercase()}|${sceneContext.hourBucket}|${sceneContext.locationGeohash}"
+    fun computeSceneHash(sceneContext: SceneContext): String {
+        // Hash based on zone map presence and face region count
+        val hasZoneMap = if (sceneContext.zoneMap != null) "1" else "0"
+        val faceCount = sceneContext.faceRegions.size
+        return "zones=$hasZoneMap|faces=$faceCount"
+    }
 
     fun reset() {
         smoothedCct = null

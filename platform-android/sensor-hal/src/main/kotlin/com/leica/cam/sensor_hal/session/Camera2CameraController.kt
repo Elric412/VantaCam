@@ -130,8 +130,8 @@ class Camera2CameraController(
         val capture = imageCapture ?: return@withContext LeicaResult.Failure.Hardware(
             errorCode = ImageCapture.ERROR_CAMERA_CLOSED,
             message = "imageCapture not initialised",
-        )
-        suspendCancellableCoroutine { continuation ->
+        ) as LeicaResult<Unit>
+        suspendCancellableCoroutine<LeicaResult<Unit>> { continuation ->
             capture.takePicture(
                 buildOutputOptions(),
                 captureExecutor,
@@ -217,7 +217,7 @@ class Camera2CameraController(
             CameraCharacteristics.LENS_FACING_BACK
         }
         val targetCameraId = withContext(Dispatchers.Default) { findCameraIdByFacing(targetFacing) }
-            ?: return LeicaResult.Failure.Hardware(message = "No camera found for facing=${if (useFrontCamera) "front" else "back"}")
+            ?: return LeicaResult.Failure.Hardware(errorCode = -1, message = "No camera found for facing=${if (useFrontCamera) "front" else "back"}")
 
         closeCamera()
         openCamera(targetCameraId)

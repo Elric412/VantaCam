@@ -316,7 +316,7 @@ private:
  *
  * Usage:
  *   auto handle = pool.acquire_scoped();   // returns std::optional<PoolHandle>
- *   if (!handle) { /* pool exhausted */ }
+ *   if (!handle) { // pool exhausted
  *   handle->buffer().channel_view(0) ...
  */
 class PoolHandle {

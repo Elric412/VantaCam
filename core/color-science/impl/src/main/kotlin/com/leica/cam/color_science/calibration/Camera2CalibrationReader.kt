@@ -100,8 +100,8 @@ class Camera2CalibrationReader @Inject constructor(
             tag = TAG,
             message = buildString {
                 append("Camera calibration ingested: ")
-                append("ill1=$ill1 (${illuminantName(ill1)}) ")
-                append("ill2=$ill2 (${illuminantName(ill2)}) ")
+                append("ill1=$ill1 (${illuminantName(ill1?.toInt())}) ")
+                append("ill2=$ill2 (${illuminantName(ill2?.toInt())}) ")
                 if (fm1 == null) append("[FM1 missing — FM2 duplicated] ")
                 if (fm2 == null) append("[FM2 missing — FM1 duplicated] ")
                 append("matA=${matrixA.contentToString()} ")

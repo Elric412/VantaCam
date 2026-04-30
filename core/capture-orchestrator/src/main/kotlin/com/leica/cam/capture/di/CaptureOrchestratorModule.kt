@@ -35,7 +35,6 @@ import com.leica.cam.photon_matrix.IPhotonMatrixIngestor
 import com.leica.cam.sensor_hal.autofocus.HybridAutoFocusEngine
 import com.leica.cam.sensor_hal.isp.IspIntegrationOrchestrator
 import com.leica.cam.sensor_hal.soc.SoCProfile
-import com.leica.cam.sensor_hal.soc.SoCVendor
 import com.leica.cam.sensor_hal.zsl.ZeroShutterLagRingBuffer
 import dagger.Module
 import dagger.Provides
@@ -134,12 +133,9 @@ object CaptureOrchestratorModule {
     @Singleton
     fun provideIspIntegrationOrchestrator(): IspIntegrationOrchestrator =
         IspIntegrationOrchestrator(
-            socProfile = SoCProfile(
-                vendor = SoCVendor.MEDIATEK,
-                modelName = "Dimensity 9300",
-                gpuModel = "Immortalis-G720",
-                npuTopsInt8 = 46f,
-                maxClockMhz = 3250,
+            socProfile = SoCProfile.detect(
+                hardwareString = "mt",
+                cpuInfo = "dimensity 9300",
             ),
         )
 
