@@ -34,7 +34,7 @@ enum class CaptureIntent {
     Landscape,
 }
 
-private abstract class ReflectiveIspOptimizer : IspOptimizer {
+internal abstract class ReflectiveIspOptimizer : IspOptimizer {
 
     protected fun setVendorValue(
         builder: CaptureRequest.Builder,
@@ -66,7 +66,7 @@ private abstract class ReflectiveIspOptimizer : IspOptimizer {
     }
 }
 
-class QualcommIspOptimizer : ReflectiveIspOptimizer() {
+internal class QualcommIspOptimizer : ReflectiveIspOptimizer() {
 
     override fun applySessionParameters(builder: CaptureRequest.Builder) {
         // EnableInsensorZoom: improved detail retention for digital zoom path.
@@ -91,14 +91,14 @@ class QualcommIspOptimizer : ReflectiveIspOptimizer() {
         CaptureIntent.Night,
         CaptureIntent.Portrait,
         CaptureIntent.Landscape,
-        -> CameraCharacteristics.SCALER_AVAILABLE_STREAM_USE_CASES_STILL_CAPTURE
+        -> CameraCharacteristics.SCALER_AVAILABLE_STREAM_USE_CASES_STILL_CAPTURE.toLong()
 
-        CaptureIntent.VideoRecord -> CameraCharacteristics.SCALER_AVAILABLE_STREAM_USE_CASES_VIDEO_RECORD
-        CaptureIntent.Preview -> CameraCharacteristics.SCALER_AVAILABLE_STREAM_USE_CASES_PREVIEW
+        CaptureIntent.VideoRecord -> CameraCharacteristics.SCALER_AVAILABLE_STREAM_USE_CASES_VIDEO_RECORD.toLong()
+        CaptureIntent.Preview -> CameraCharacteristics.SCALER_AVAILABLE_STREAM_USE_CASES_PREVIEW.toLong()
     }
 }
 
-class MediaTekIspOptimizer : ReflectiveIspOptimizer() {
+internal class MediaTekIspOptimizer : ReflectiveIspOptimizer() {
 
     override fun applySessionParameters(builder: CaptureRequest.Builder) {
         // MediaTek HDR video switch (namespace varies by firmware, keep reflective).
@@ -115,18 +115,18 @@ class MediaTekIspOptimizer : ReflectiveIspOptimizer() {
     }
 
     override fun selectStreamUseCase(captureMode: CaptureIntent): Long = when (captureMode) {
-        CaptureIntent.VideoRecord -> CameraCharacteristics.SCALER_AVAILABLE_STREAM_USE_CASES_VIDEO_RECORD
+        CaptureIntent.VideoRecord -> CameraCharacteristics.SCALER_AVAILABLE_STREAM_USE_CASES_VIDEO_RECORD.toLong()
         CaptureIntent.StillCapture,
         CaptureIntent.Night,
         CaptureIntent.Portrait,
         CaptureIntent.Landscape,
-        -> CameraCharacteristics.SCALER_AVAILABLE_STREAM_USE_CASES_STILL_CAPTURE
+        -> CameraCharacteristics.SCALER_AVAILABLE_STREAM_USE_CASES_STILL_CAPTURE.toLong()
 
-        CaptureIntent.Preview -> CameraCharacteristics.SCALER_AVAILABLE_STREAM_USE_CASES_PREVIEW
+        CaptureIntent.Preview -> CameraCharacteristics.SCALER_AVAILABLE_STREAM_USE_CASES_PREVIEW.toLong()
     }
 }
 
-class ExynosIspOptimizer : ReflectiveIspOptimizer() {
+internal class ExynosIspOptimizer : ReflectiveIspOptimizer() {
 
     override fun applySessionParameters(builder: CaptureRequest.Builder) {
         // Samsung M-ISP / NPU scene analysis toggle.
@@ -147,18 +147,18 @@ class ExynosIspOptimizer : ReflectiveIspOptimizer() {
     }
 
     override fun selectStreamUseCase(captureMode: CaptureIntent): Long = when (captureMode) {
-        CaptureIntent.VideoRecord -> CameraCharacteristics.SCALER_AVAILABLE_STREAM_USE_CASES_VIDEO_RECORD
+        CaptureIntent.VideoRecord -> CameraCharacteristics.SCALER_AVAILABLE_STREAM_USE_CASES_VIDEO_RECORD.toLong()
         CaptureIntent.StillCapture,
         CaptureIntent.Night,
         CaptureIntent.Portrait,
         CaptureIntent.Landscape,
-        -> CameraCharacteristics.SCALER_AVAILABLE_STREAM_USE_CASES_STILL_CAPTURE
+        -> CameraCharacteristics.SCALER_AVAILABLE_STREAM_USE_CASES_STILL_CAPTURE.toLong()
 
-        CaptureIntent.Preview -> CameraCharacteristics.SCALER_AVAILABLE_STREAM_USE_CASES_PREVIEW
+        CaptureIntent.Preview -> CameraCharacteristics.SCALER_AVAILABLE_STREAM_USE_CASES_PREVIEW.toLong()
     }
 }
 
-class GenericIspOptimizer : ReflectiveIspOptimizer() {
+internal class GenericIspOptimizer : ReflectiveIspOptimizer() {
 
     override fun applySessionParameters(builder: CaptureRequest.Builder) {
         setStandardParameter(
@@ -183,13 +183,13 @@ class GenericIspOptimizer : ReflectiveIspOptimizer() {
     }
 
     override fun selectStreamUseCase(captureMode: CaptureIntent): Long = when (captureMode) {
-        CaptureIntent.VideoRecord -> CameraCharacteristics.SCALER_AVAILABLE_STREAM_USE_CASES_VIDEO_RECORD
+        CaptureIntent.VideoRecord -> CameraCharacteristics.SCALER_AVAILABLE_STREAM_USE_CASES_VIDEO_RECORD.toLong()
         CaptureIntent.StillCapture,
         CaptureIntent.Night,
         CaptureIntent.Portrait,
         CaptureIntent.Landscape,
-        -> CameraCharacteristics.SCALER_AVAILABLE_STREAM_USE_CASES_STILL_CAPTURE
+        -> CameraCharacteristics.SCALER_AVAILABLE_STREAM_USE_CASES_STILL_CAPTURE.toLong()
 
-        CaptureIntent.Preview -> CameraCharacteristics.SCALER_AVAILABLE_STREAM_USE_CASES_PREVIEW
+        CaptureIntent.Preview -> CameraCharacteristics.SCALER_AVAILABLE_STREAM_USE_CASES_PREVIEW.toLong()
     }
 }

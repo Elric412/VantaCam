@@ -17,7 +17,7 @@ import javax.inject.Singleton
 @Singleton
 class SceneClassifierRunner @Inject constructor(
     private val registry: ModelRegistry,
-    @Named("assetBytes") private val assetBytes: (path: String) -> ByteBuffer,
+    @Named("assetBytes") private val assetBytes: @JvmSuppressWildcards (path: String) -> ByteBuffer,
 ) : AutoCloseable, SceneClassifier {
 
     @Volatile private var session: LiteRtSession? = null
@@ -115,7 +115,7 @@ class SceneClassifierRunner @Inject constructor(
         val interpreter = runCatching {
             val field = s.javaClass.getDeclaredField("interpreterHandle")
             field.isAccessible = true
-            field.get(s) as? com.google.ai.edge.litert.Interpreter
+            field.get(s) as? org.tensorflow.lite.Interpreter
         }.getOrNull() ?: return NormStyle.MINUS_ONE_TO_ONE
         return runCatching {
             val qp = interpreter.getInputTensor(0).quantizationParams()

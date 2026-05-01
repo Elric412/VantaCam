@@ -17,7 +17,7 @@ import javax.inject.Singleton
 @Singleton
 class SemanticSegmenterRunner @Inject constructor(
     private val registry: ModelRegistry,
-    @Named("assetBytes") private val assetBytes: (path: String) -> ByteBuffer,
+    @Named("assetBytes") private val assetBytes: @JvmSuppressWildcards (path: String) -> ByteBuffer,
 ) : AutoCloseable, SemanticSegmenter {
 
     @Volatile private var session: LiteRtSession? = null

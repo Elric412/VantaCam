@@ -1,13 +1,13 @@
 package com.leica.cam.smart_imaging
 
 import com.leica.cam.ai_engine.api.IAiEngine
+import com.leica.cam.ai_engine.api.SceneAnalysis
 import com.leica.cam.bokeh_engine.api.IBokehEngine
 import com.leica.cam.color_science.api.ColourMappedBuffer
 import com.leica.cam.color_science.api.IColorLM2Engine
 import com.leica.cam.common.logging.LeicaLogger
 import com.leica.cam.common.result.LeicaResult
 import com.leica.cam.common.result.PipelineStage
-import com.leica.cam.common.types.NonEmptyList
 import com.leica.cam.depth_engine.api.DepthMap
 import com.leica.cam.depth_engine.api.IDepthEngine
 import com.leica.cam.face_engine.api.FaceAnalysis
@@ -51,65 +51,101 @@ class SmartImagingOrchestrator @Inject constructor(
 ) : ISmartImagingOrchestrator {
 
     override suspend fun processCapture(
-        frames: NonEmptyList<Any>,
+        frames: List<PhotonBuffer>,
         plan: LumoCapturePlan,
     ): LeicaResult<LumoOutputPackage> = withContext(io) {
-        val budget = governor.checkBudget().getOrElse { return@withContext it }
+        val budget = when (val r = governor.checkBudget()) {
+            is LeicaResult.Success -> r.value
+            is LeicaResult.Failure -> return@withContext r
+        }
         logger.info("LUMO", "LUMO capture: budget=$budget, frames=${frames.size}")
 
-        val photon = photonMatrix.ingest(frames).getOrElse { return@withContext it }
-        val aligned = motionEngine.align(photon, plan.motionConfig).getOrElse { return@withContext it }
-        val fused = fusionEngine.fuse(aligned, plan.fusionConfig).getOrElse { return@withContext it }
+        val photon = when (val r = photonMatrix.ingest(frames)) {
+            is LeicaResult.Success -> r.value
+            is LeicaResult.Failure -> return@withContext r
+        }
+        val aligned = when (val r = motionEngine.align(photon, plan.motionConfig)) {
+            is LeicaResult.Success -> r.value
+            is LeicaResult.Failure -> return@withContext r
+        }
+        val fused = when (val r = fusionEngine.fuse(aligned, plan.fusionConfig)) {
+            is LeicaResult.Success -> r.value
+            is LeicaResult.Failure -> return@withContext r
+        }
 
+        // Parallel analysis stage
         data class ParallelResults(
             val colour: ColourMappedBuffer,
             val depth: DepthMap,
             val face: FaceAnalysis,
-            val scene: com.leica.cam.ai_engine.api.SceneAnalysis,
+            val scene: SceneAnalysis,
         )
 
-        val parallel = coroutineScope {
+        val parallel: ParallelResults = coroutineScope {
             val cDeferred = async { colourEngine.mapColours(fused, plan.sceneContext) }
             val dDeferred = async { depthEngine.estimate(fused, plan.depthConfig) }
             val fDeferred = async { faceEngine.detect(fused) }
             val sDeferred = async { aiEngine.classifyAndScore(fused, plan.captureMode) }
 
-            ParallelResults(
-                colour = cDeferred.await().getOrElse { return@coroutineScope it },
-                depth = dDeferred.await().getOrElse { return@coroutineScope it },
-                face = fDeferred.await().getOrElse { return@coroutineScope it },
-                scene = sDeferred.await().getOrElse { return@coroutineScope it },
-            )
-        }.let {
-            when (it) {
-                is LeicaResult.Success -> it.value
-                is LeicaResult.Failure -> return@withContext it
-                else -> return@withContext LeicaResult.Failure.Pipeline(
-                    PipelineStage.SMART_IMAGING,
-                    "Parallel dispatch failed",
-                )
+            val cResult = cDeferred.await()
+            val dResult = dDeferred.await()
+            val fResult = fDeferred.await()
+            val sResult = sDeferred.await()
+
+            val colour = when (cResult) {
+                is LeicaResult.Success -> cResult.value
+                is LeicaResult.Failure -> return@coroutineScope cResult
+            }
+            val depth = when (dResult) {
+                is LeicaResult.Success -> dResult.value
+                is LeicaResult.Failure -> return@coroutineScope dResult
+            }
+            val face = when (fResult) {
+                is LeicaResult.Success -> fResult.value
+                is LeicaResult.Failure -> return@coroutineScope fResult
+            }
+            val scene = when (sResult) {
+                is LeicaResult.Success -> sResult.value
+                is LeicaResult.Failure -> return@coroutineScope sResult
+            }
+
+            LeicaResult.Success(ParallelResults(colour, depth, face, scene))
+        }.let { result ->
+            when (result) {
+                is LeicaResult.Success -> result.value
+                is LeicaResult.Failure -> return@withContext result
             }
         }
 
-        val (wb, bokeh) = coroutineScope {
-            val skinZones = SkinZoneMap(
-                parallel.face.skinZones.width,
-                parallel.face.skinZones.height,
-                parallel.face.skinZones.mask,
-            )
-            val illuminantMap = IlluminantMap(
-                tiles = emptyList(),
-                dominantKelvin = parallel.scene.illuminantHint.estimatedKelvin,
-            )
-            val wbDeferred = async { wbEngine.correct(parallel.colour, skinZones, illuminantMap) }
-            val bokehDeferred = async { bokehEngine.compute(parallel.depth, parallel.face.subjectBoundary, plan.bokehConfig) }
+        // Serial WB + Bokeh stage
+        val skinZones = SkinZoneMap(
+            parallel.face.skinZones.width,
+            parallel.face.skinZones.height,
+            parallel.face.skinZones.mask,
+        )
+        val illuminantMap = IlluminantMap(
+            tiles = emptyList(),
+            dominantKelvin = parallel.scene.illuminantHint.estimatedKelvin,
+        )
 
-            wbDeferred.await().getOrElse { return@coroutineScope it } to
-                bokehDeferred.await().getOrElse { return@coroutineScope it }
+        val wb = when (val r = wbEngine.correct(parallel.colour, skinZones, illuminantMap)) {
+            is LeicaResult.Success -> r.value
+            is LeicaResult.Failure -> return@withContext r
+        }
+        val bokeh = when (val r = bokehEngine.compute(parallel.depth, parallel.face.subjectBoundary, plan.bokehConfig)) {
+            is LeicaResult.Success -> r.value
+            is LeicaResult.Failure -> return@withContext r
         }
 
-        val toned = toneEngine.render(wb, bokeh, parallel.scene, plan.toneConfig).getOrElse { return@withContext it }
-        val enhanced = neuralIsp.enhance(toned, budget).getOrElse { return@withContext it }
+        val toned = when (val r = toneEngine.render(wb, bokeh, parallel.scene, plan.toneConfig)) {
+            is LeicaResult.Success -> r.value
+            is LeicaResult.Failure -> return@withContext r
+        }
+        val enhanced = when (val r = neuralIsp.enhance(toned, budget)) {
+            is LeicaResult.Success -> r.value
+            is LeicaResult.Failure -> return@withContext r
+        }
+
         when (val assembled = assembler.assemble(enhanced, plan.outputMode, IPhotonMatrixAssembler.OutputMetadata())) {
             is LeicaResult.Success -> {
                 LeicaResult.Success(
@@ -160,11 +196,11 @@ class ToneLM2Engine {
     suspend fun render(
         wb: WbCorrectedBuffer,
         bokeh: com.leica.cam.bokeh_engine.api.BokehResult,
-        scene: com.leica.cam.ai_engine.api.SceneAnalysis,
+        scene: SceneAnalysis,
         config: ToneConfig,
     ): LeicaResult<TonedBuffer> {
         val underlying = when (wb) {
-            is WbCorrectedBuffer.Corrected -> wb.underlying
+            is WbCorrectedBuffer.Corrected -> wb.underlying.underlying
         }
         return LeicaResult.Success(TonedBuffer.TonedImage(underlying, config.profile))
     }

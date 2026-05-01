@@ -1,6 +1,6 @@
 package com.leica.cam.ai_engine.impl.runtime
 
-import com.google.ai.edge.litert.InterpreterOptions
+import org.tensorflow.lite.Interpreter
 
 /**
  * Reflection-based attach for vendor-specific ML accelerator delegates. These SDKs
@@ -9,7 +9,7 @@ import com.google.ai.edge.litert.InterpreterOptions
  */
 internal object VendorDelegateLoader {
     fun attach(
-        options: InterpreterOptions,
+        options: Interpreter.Options,
         kind: LiteRtSession.DelegateKind,
     ): Any? {
         val className = when (kind) {
@@ -24,7 +24,7 @@ internal object VendorDelegateLoader {
             val delegate = delegateClass.getDeclaredConstructor().newInstance()
             val addDelegate = options.javaClass.getMethod(
                 "addDelegate",
-                Class.forName("com.google.ai.edge.litert.Delegate"),
+                Class.forName("org.tensorflow.lite.Delegate"),
             )
             addDelegate.invoke(options, delegate)
             delegate

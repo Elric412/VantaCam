@@ -1,5 +1,6 @@
 package com.leica.cam.hypertone_wb.pipeline
 
+import com.leica.cam.hypertone_wb.api.FusedIlluminantMap
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.exp

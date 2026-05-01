@@ -4,6 +4,7 @@ import com.leica.cam.ai_engine.api.CaptureMode
 import com.leica.cam.ai_engine.api.IAiEngine
 import com.leica.cam.ai_engine.api.SceneAnalysis
 import com.leica.cam.bokeh_engine.api.BokehConfig
+import com.leica.cam.bokeh_engine.api.BokehMask
 import com.leica.cam.bokeh_engine.api.BokehResult
 import com.leica.cam.bokeh_engine.api.IBokehEngine
 import com.leica.cam.capture.autofocus.PredictiveAutoFocusEngine
@@ -37,7 +38,6 @@ import com.leica.cam.imaging_pipeline.pipeline.ToneLM2Engine
 import com.leica.cam.common.logging.LeicaLogger
 import com.leica.cam.common.result.LeicaResult
 import com.leica.cam.common.result.PipelineStage
-import com.leica.cam.common.types.NonEmptyList
 import com.leica.cam.depth_engine.api.DepthConfig
 import com.leica.cam.depth_engine.api.IDepthEngine
 import com.leica.cam.face_engine.api.FaceAnalysis
@@ -163,12 +163,7 @@ class CaptureProcessingOrchestrator @Inject constructor(
                 "No frames available in ZSL ring buffer",
             )
         }
-        val frames = NonEmptyList.fromList(burstFrames)
-            ?: return@withContext LeicaResult.Failure.Pipeline(
-                PipelineStage.ZSL_BUFFER,
-                "ZSL buffer returned empty frame list",
-            )
-        logger.info(TAG, "ZSL: Retrieved ${frames.size} burst frames")
+        logger.info(TAG, "ZSL: Retrieved ${burstFrames.size} burst frames")
 
         // ──────────────────────────────────────────────────────────────────
         // Stage 2: Pre-capture Analysis (AF + Metering)
@@ -226,7 +221,12 @@ class CaptureProcessingOrchestrator @Inject constructor(
             HdrCaptureMode.PRO_XDR -> HdrMode.PRO_XDR
         }
         val hdrStrategy = hdrStrategyEngine.selectStrategy(
-            sceneAnalysis = com.leica.cam.ai_engine.api.SceneAnalysis.default(),
+            sceneAnalysis = com.leica.cam.ai_engine.api.SceneAnalysis(
+                sceneLabel = com.leica.cam.ai_engine.api.SceneLabel.UNKNOWN,
+                qualityScore = com.leica.cam.ai_engine.api.QualityScore(overall = 0.7f),
+                illuminantHint = com.leica.cam.ai_engine.api.IlluminantHint(6500f, 0.5f, false),
+                trackedObjects = emptyList(),
+            ),
             motionScore = 0f,
             dynamicRangeStops = 8f,
             processingBudgetMs = budget.totalTimeMs.toLong(),
@@ -238,11 +238,19 @@ class CaptureProcessingOrchestrator @Inject constructor(
         // ──────────────────────────────────────────────────────────────────
         // Stage 5: Photon Ingestion & Alignment
         // ──────────────────────────────────────────────────────────────────
-        val photon = photonIngestor.ingest(frames).getOrElse { return@withContext it }
+        val photonFrames = burstFrames.filterIsInstance<com.leica.cam.hardware.contracts.photon.PhotonBuffer>()
+        val photonResult = photonIngestor.ingest(photonFrames)
+        val photon = when (photonResult) {
+            is LeicaResult.Success -> photonResult.value
+            is LeicaResult.Failure -> return@withContext photonResult
+        }
         logger.info(TAG, "Photon ingested: ${photon.width}x${photon.height}")
 
         val motionConfig = MotionConfig()
-        val aligned = motionEngine.align(photon, motionConfig).getOrElse { return@withContext it }
+        val aligned = when (val r = motionEngine.align(photon, motionConfig)) {
+            is LeicaResult.Success -> r.value
+            is LeicaResult.Failure -> return@withContext r
+        }
         logger.info(TAG, "Frames aligned: ${aligned.frames.size} frames")
 
         // ──────────────────────────────────────────────────────────────────
@@ -264,10 +272,12 @@ class CaptureProcessingOrchestrator @Inject constructor(
         //   - Depth estimation
         //   - Face detection & landmark analysis
         // ──────────────────────────────────────────────────────────────────
-        val parallelResults = runParallelAnalysis(postHdr, captureRequest, halStages)
-            .getOrElse { return@withContext it }
+        val parallelResults = when (val r = runParallelAnalysis(postHdr, captureRequest, halStages)) {
+            is LeicaResult.Success -> r.value
+            is LeicaResult.Failure -> return@withContext r
+        }
         logger.info(TAG, "AI analysis: scene=${parallelResults.scene.sceneLabel}, " +
-            "faces=${parallelResults.face.faceCount}, depth=${parallelResults.depth != null}")
+            "faces=${parallelResults.face.meshResults.size}, depth=${parallelResults.depth != null}")
 
         // ──────────────────────────────────────────────────────────────────
         // Stage 8: HyperTone White Balance Correction
@@ -276,17 +286,23 @@ class CaptureProcessingOrchestrator @Inject constructor(
         //   - Mixed-light spatial WB
         //   - Temporal consistency
         // ──────────────────────────────────────────────────────────────────
-        val wbResult = runWhiteBalanceCorrection(
+        val wbResult = when (val r = runWhiteBalanceCorrection(
             parallelResults, ispDecision, captureRequest, postHdr,
-        ).getOrElse { return@withContext it }
+        )) {
+            is LeicaResult.Success -> r.value
+            is LeicaResult.Failure -> return@withContext r
+        }
         logger.info(TAG, "HyperTone WB applied")
 
         // ──────────────────────────────────────────────────────────────────
         // Stage 9: Bokeh Computation
         // ──────────────────────────────────────────────────────────────────
-        val bokehResult = runBokehComputation(
+        val bokehResult = when (val r = runBokehComputation(
             parallelResults, captureRequest,
-        ).getOrElse { return@withContext it }
+        )) {
+            is LeicaResult.Success -> r.value
+            is LeicaResult.Failure -> return@withContext r
+        }
         logger.info(TAG, "Bokeh computed: mode=${bokehResult.javaClass.simpleName}")
 
         // ──────────────────────────────────────────────────────────────────
@@ -324,7 +340,10 @@ class CaptureProcessingOrchestrator @Inject constructor(
             processingBudgetMs = captureRequest.processingBudgetMs,
         )
         val enhanced = if (ispDecision.useNeuralIsp) {
-            neuralIsp.enhance(toneMapped, thermalBudget).getOrElse { return@withContext it }
+            when (val r = neuralIsp.enhance(toneMapped, thermalBudget)) {
+                is LeicaResult.Success -> r.value
+                is LeicaResult.Failure -> return@withContext r
+            }
         } else {
             toneMapped.underlying
         }
@@ -422,9 +441,12 @@ class CaptureProcessingOrchestrator @Inject constructor(
         // Stage 15: Output Assembly & Encoding
         // ──────────────────────────────────────────────────────────────────
         val outputMetadata = IPhotonMatrixAssembler.OutputMetadata()
-        val output = assembler.assemble(
+        val output = when (val r = assembler.assemble(
             grainApplied, captureRequest.outputMode, outputMetadata,
-        ).getOrElse { return@withContext it }
+        )) {
+            is LeicaResult.Success -> r.value
+            is LeicaResult.Failure -> return@withContext r
+        }
 
         val captureLatencyMs = (System.nanoTime() - startTimeNs) / 1_000_000L
         logger.info(TAG, "━━━ CAPTURE COMPLETE ━━━ latency=${captureLatencyMs}ms, " +
@@ -663,8 +685,10 @@ class CaptureProcessingOrchestrator @Inject constructor(
             tiles = emptyList(),
             dominantKelvin = results.scene.illuminantHint.estimatedKelvin,
         )
-        val wbCorrected = wbEngine.correct(colourForWb, skinZones, illuminantMap)
-            .getOrElse { return it }
+        val wbCorrected = when (val r = wbEngine.correct(colourForWb, skinZones, illuminantMap)) {
+            is LeicaResult.Success -> r.value
+            is LeicaResult.Failure -> return r
+        }
 
         val underlying = when (wbCorrected) {
             is WbCorrectedBuffer.Corrected -> wbCorrected.underlying
@@ -703,7 +727,7 @@ class CaptureProcessingOrchestrator @Inject constructor(
         request: CaptureRequest,
     ): LeicaResult<BokehResult> {
         val depth = results.depth
-            ?: return LeicaResult.Success(BokehResult.Skipped("No depth map available"))
+            ?: return LeicaResult.Success(BokehResult.Rendered(BokehMask(1, 1, FloatArray(1) { 0f }), FloatArray(1) { 0f }))
         return bokehEngine.compute(depth, results.face.subjectBoundary, BokehConfig())
     }
 

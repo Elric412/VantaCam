@@ -26,16 +26,18 @@ class DepthSensingFusion @Inject constructor(
         fused: FusedPhotonBuffer,
         config: DepthConfig,
     ): LeicaResult<DepthMap> {
-        val monocularResult = monocularEstimator.estimate(fused)
-            .getOrElse { return@with it }
+        val monocularResult = when (val r = monocularEstimator.estimate(fused)) {
+            is LeicaResult.Success -> r.value
+            is LeicaResult.Failure -> return r
+        }
 
-        val fused = when (config.fusionMode) {
+        val fusedDepth = when (config.fusionMode) {
             DepthFusionMode.MONOCULAR_ONLY -> monocularResult
             DepthFusionMode.TOF_PRIMARY -> kalmanFilter.fuse(monocularResult, config)
             DepthFusionMode.KALMAN_FUSED -> kalmanFilter.fuse(monocularResult, config)
         }
 
-        val refined = edgeRefiner.refine(fused, fused)
+        val refined = edgeRefiner.refine(fusedDepth, fused)
         return LeicaResult.Success(refined)
     }
 }
@@ -43,8 +45,8 @@ class DepthSensingFusion @Inject constructor(
 @Singleton
 class MonocularDepthEstimator @Inject constructor() {
     fun estimate(fused: FusedPhotonBuffer): LeicaResult<DepthMap> {
-        val width = fused.width
-        val height = fused.height
+        val width = fused.underlying.width
+        val height = fused.underlying.height
         val size = width * height
         // In production: runs TFLite MiDaS v3 large model
         // Input: RGB at 384×384, output: inverse-depth map upsampled to native resolution

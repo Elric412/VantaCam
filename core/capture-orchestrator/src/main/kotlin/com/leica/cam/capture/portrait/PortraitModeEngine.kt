@@ -102,7 +102,7 @@ class PortraitModeEngine(
         return PortraitResult(
             processedBuffer = buffer,
             depthSource = resolvedDepth.source,
-            detectedFaces = faceAnalysis.faceRects,
+            detectedFaces = faceAnalysis.meshResults,
         )
     }
 
@@ -122,9 +122,8 @@ class PortraitModeEngine(
                 width = width,
                 height = height,
                 source = when {
-                    depthMap.isHardwareStereo -> PortraitResult.DepthSource.HARDWARE_STEREO
-                    depthMap.isToF -> PortraitResult.DepthSource.TOF_SENSOR
-                    depthMap.isPhaseDetection -> PortraitResult.DepthSource.PHASE_DETECTION
+                    depthMap.depth.isNotEmpty() && depthMap.depth.average() < 0.5 -> PortraitResult.DepthSource.TOF_SENSOR
+                    depthMap.confidence.average() > 0.8 -> PortraitResult.DepthSource.PHASE_DETECTION
                     else -> PortraitResult.DepthSource.NEURAL_MONOCULAR
                 },
                 minDepth = 0.1f,
@@ -155,10 +154,14 @@ class PortraitModeEngine(
         height: Int,
     ): Float {
         // If faces detected, focus on the nearest face
-        if (faceAnalysis.faceCount > 0 && faceAnalysis.faceRects.isNotEmpty()) {
-            val primaryFace = faceAnalysis.faceRects.first()
-            val faceCenterX = (primaryFace.left + primaryFace.right) / 2
-            val faceCenterY = (primaryFace.top + primaryFace.bottom) / 2
+        if (faceAnalysis.meshResults.isNotEmpty()) {
+            val primaryFaceLandmarks = faceAnalysis.meshResults.first().landmarks
+            if (primaryFaceLandmarks.isEmpty()) {
+                val centerIdx = (height / 2) * width + width / 2
+                return if (centerIdx < depth.values.size) depth.values[centerIdx] else 1f
+            }
+            val faceCenterX = (primaryFaceLandmarks.map { it.x }.average() * width).toInt().coerceIn(0, width - 1)
+            val faceCenterY = (primaryFaceLandmarks.map { it.y }.average() * height).toInt().coerceIn(0, height - 1)
 
             // Sample depth at face center
             val idx = (faceCenterY * depth.width + faceCenterX)

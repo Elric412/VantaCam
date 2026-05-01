@@ -39,10 +39,10 @@ class CameraSessionManager(
     }
 
     suspend fun capture(): LeicaResult<Unit> {
-        mutex.withLock {
+        return mutex.withLock {
             if (stateMachine.currentState() != CameraSessionState.IDLE) {
                 Logger.d(TAG, "capture ignored because state=${stateMachine.currentState()}")
-                return LeicaResult.Failure.Pipeline(PipelineStage.SESSION, "Capture requested in non-idle session state")
+                return@withLock LeicaResult.Failure.Pipeline(PipelineStage.SESSION, "Capture requested in non-idle session state")
             }
 
             stateMachine.transition(CameraSessionEvent.CAPTURE_REQUESTED)

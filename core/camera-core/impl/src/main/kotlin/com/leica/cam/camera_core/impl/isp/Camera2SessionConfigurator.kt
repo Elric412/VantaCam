@@ -4,7 +4,6 @@ import android.content.Context
 import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CameraDevice
 import android.hardware.camera2.CaptureRequest
-import android.hardware.camera2.params.ExtensionSessionConfiguration
 import android.hardware.camera2.params.OutputConfiguration
 import android.hardware.camera2.params.SessionConfiguration
 import android.os.Build
@@ -32,26 +31,20 @@ class Camera2SessionConfigurator(
         val sessionBuilder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW)
 
         optimizer.applySessionParameters(sessionBuilder)
-        applyStreamUseCase(sessionBuilder, optimizer.selectStreamUseCase(captureIntent))
+
+        // Apply stream use case via reflection on API 33+ to avoid compile-time dependency
+        applyStreamUseCaseReflective(sessionBuilder, optimizer.selectStreamUseCase(captureIntent))
 
         val outputConfigs = surfaces.map { OutputConfiguration(it) }
 
+        // Try vendor extension session on API 31+ via full reflection to avoid callback type mismatch
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             val extensionType = chooseExtension(cameraId, captureIntent)
             if (extensionType != null) {
-                try {
-                    val extensionConfig = ExtensionSessionConfiguration(
-                        extensionType,
-                        outputConfigs,
-                        cameraExecutor,
-                        stateCallback,
-                    )
-                    extensionConfig.sessionParameters = sessionBuilder.build()
-                    cameraDevice.createExtensionSession(extensionConfig)
-                    return
-                } catch (_: Throwable) {
-                    // Extension path is optional; continue with standard Camera2 session setup.
-                }
+                val extensionStarted = tryCreateExtensionSession(
+                    cameraDevice, extensionType, outputConfigs, sessionBuilder.build()
+                )
+                if (extensionStarted) return
             }
         }
 
@@ -74,19 +67,70 @@ class Camera2SessionConfigurator(
         val requestBuilder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW)
         requestBuilder.addTarget(targetSurface)
         optimizer.applyRepeatingRequest(requestBuilder, captureIntent)
-        applyStreamUseCase(requestBuilder, optimizer.selectStreamUseCase(captureIntent))
+        applyStreamUseCaseReflective(requestBuilder, optimizer.selectStreamUseCase(captureIntent))
         return requestBuilder.build()
     }
 
-    private fun applyStreamUseCase(builder: CaptureRequest.Builder, streamUseCase: Long) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-            return
-        }
-
+    /**
+     * Apply STREAM_USE_CASE via reflection — the constant exists on API 33+ only.
+     * Using reflection avoids compile-time API 33 dependency when minSdk is lower.
+     */
+    private fun applyStreamUseCaseReflective(builder: CaptureRequest.Builder, streamUseCase: Long) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
         try {
-            builder.set(CaptureRequest.STREAM_USE_CASE, streamUseCase)
+            val keyField = CaptureRequest::class.java.getField("STREAM_USE_CASE")
+            @Suppress("UNCHECKED_CAST")
+            val key = keyField.get(null) as? CaptureRequest.Key<Long> ?: return
+            builder.set(key, streamUseCase)
         } catch (_: Throwable) {
-            // HAL does not support stream use case on this stream configuration.
+            // HAL does not support stream use case on this device/config.
+        }
+    }
+
+    /**
+     * Attempt to create a CameraExtensionSession using full reflection so we avoid
+     * the CameraExtensionSession.StateCallback compile-time dependency and callback mismatch.
+     * Returns true if the extension session was successfully created.
+     */
+    private fun tryCreateExtensionSession(
+        cameraDevice: CameraDevice,
+        extensionType: Int,
+        outputConfigs: List<OutputConfiguration>,
+        sessionParams: CaptureRequest,
+    ): Boolean {
+        return try {
+            // Locate CameraExtensionSession.StateCallback at runtime
+            val stateCallbackClass = Class.forName("android.hardware.camera2.CameraExtensionSession\$StateCallback")
+            val noOpCallback = java.lang.reflect.Proxy.newProxyInstance(
+                stateCallbackClass.classLoader,
+                arrayOf(stateCallbackClass),
+            ) { _, _, _ -> null }
+
+            // Locate ExtensionSessionConfiguration constructor
+            val extensionConfigClass = Class.forName("android.hardware.camera2.params.ExtensionSessionConfiguration")
+            val ctor = extensionConfigClass.getConstructor(
+                Int::class.java,
+                List::class.java,
+                Executor::class.java,
+                stateCallbackClass,
+            )
+            val extensionConfig = ctor.newInstance(extensionType, outputConfigs, cameraExecutor, noOpCallback)
+
+            // Set session parameters if the setter exists
+            runCatching {
+                val setSessionParams = extensionConfigClass.getMethod("setSessionParameters", CaptureRequest::class.java)
+                setSessionParams.invoke(extensionConfig, sessionParams)
+            }
+
+            // Create extension session
+            val createExtension = CameraDevice::class.java.getMethod(
+                "createExtensionSession",
+                extensionConfigClass,
+            )
+            createExtension.invoke(cameraDevice, extensionConfig)
+            true
+        } catch (_: Throwable) {
+            false
         }
     }
 

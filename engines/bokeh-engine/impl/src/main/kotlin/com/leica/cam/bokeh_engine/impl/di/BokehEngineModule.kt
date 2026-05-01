@@ -1,6 +1,10 @@
 package com.leica.cam.bokeh_engine.impl.di
 
 import com.leica.cam.bokeh_engine.api.IBokehEngine
+import com.leica.cam.bokeh_engine.impl.BokehEngineOrchestrator
+import com.leica.cam.bokeh_engine.impl.LensFlare3dRestorer
+import com.leica.cam.bokeh_engine.impl.SpatialReconstructionRenderer
+import com.leica.cam.bokeh_engine.impl.SubjectSpaceComputer
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn

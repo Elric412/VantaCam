@@ -14,6 +14,7 @@ dependencies {
     implementation(project(":photon-matrix:api"))
     implementation(project(":gpu-compute"))
     implementation(project(":native-imaging-core:api"))
+    implementation(project(":sensor-hal"))
     implementation(libs.hilt.android)
     kapt(libs.hilt.compiler)
 }
