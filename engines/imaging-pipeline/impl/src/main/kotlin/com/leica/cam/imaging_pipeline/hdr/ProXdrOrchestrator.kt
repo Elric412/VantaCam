@@ -4,6 +4,9 @@ import com.leica.cam.common.ThermalState
 import com.leica.cam.common.result.LeicaResult
 import com.leica.cam.common.result.PipelineStage
 import com.leica.cam.imaging_pipeline.api.UserHdrMode
+import com.leica.cam.imaging_pipeline.hdr.proxdrv3.ProXdrV3Engine
+import com.leica.cam.imaging_pipeline.hdr.proxdrv3.ProXdrV3SceneMode
+import com.leica.cam.imaging_pipeline.hdr.proxdrv3.ProXdrV3Thermal
 import com.leica.cam.imaging_pipeline.pipeline.HdrMergeMode
 import com.leica.cam.imaging_pipeline.pipeline.HdrMergeResult
 import com.leica.cam.imaging_pipeline.pipeline.NoiseModel
@@ -36,6 +39,17 @@ class ProXdrOrchestrator(
     private val highlightReconstructor: HighlightReconstructor = HighlightReconstructor(),
     private val shadowRestorer: ShadowRestorer = ShadowRestorer(),
     private val mertensFallback: MertensFallback = MertensFallback(),
+    /**
+     * ProXDR v3 — adaptive AI-powered HDR engine. When the user selects
+     * [UserHdrMode.PRO_XDR_V3] (or when the smart picker decides v3 is the
+     * right path), the orchestrator routes to this engine instead of the
+     * legacy [merger] / [highlightReconstructor] / [shadowRestorer] chain.
+     *
+     * See `engines/imaging-pipeline/impl/.../hdr/proxdrv3/ProXdrV3Engine.kt`
+     * and the upstream docs in
+     * `platform-android/native-imaging-core/impl/src/main/cpp/proxdr/docs/`.
+     */
+    private val proXdrV3Engine: ProXdrV3Engine = ProXdrV3Engine(),
 ) {
 
     /**
@@ -60,6 +74,13 @@ class ProXdrOrchestrator(
         if (userHdrMode == UserHdrMode.OFF || isThermalSevere(scene)) {
             return singleFrameResult(frames.first())
         }
+        // ProXDR v3 path — bypasses the legacy merge stack entirely. The v3
+        // engine internally orchestrates SAFNet-lite Wiener fusion, soft-knee
+        // spectral highlight recovery, log-lift shadow restoration, and (on
+        // native) Mertens-on-linear-HDR.
+        if (userHdrMode == UserHdrMode.PRO_XDR_V3) {
+            return processProXdrV3(frames, scene)
+        }
         val noise = perChannelNoise ?: PerChannelNoise.fromIsoEstimate(frames.minOf { it.isoEquivalent })
         return when (HdrModePicker.pickWithUserOverride(buildMetadata(frames, scene), userHdrMode)) {
             HdrMergeMode.SINGLE_FRAME -> singleFrameResult(frames.first())
@@ -67,6 +88,42 @@ class ProXdrOrchestrator(
             HdrMergeMode.DEBEVEC_LINEAR -> processEvBracket(frames, noise)
             HdrMergeMode.MERTENS_FUSION -> processMertensFusion(frames)
         }
+    }
+
+    /**
+     * Drive ProXDR v3 with scene + thermal context translated from the
+     * existing `SceneDescriptor`. The v3 engine returns its own
+     * [HdrMergeResult] so we forward it directly.
+     */
+    private fun processProXdrV3(
+        frames: List<PipelineFrame>,
+        scene: SceneDescriptor?,
+    ): LeicaResult<HdrMergeResult> {
+        val sceneMode = scene?.sceneCategory?.toV3() ?: ProXdrV3SceneMode.AUTO
+        val thermalLevel = scene?.thermalLevel ?: 0
+        val thermal = when {
+            thermalLevel >= 4 -> ProXdrV3Thermal.CRITICAL
+            thermalLevel >= 3 -> ProXdrV3Thermal.SEVERE
+            thermalLevel >= 2 -> ProXdrV3Thermal.MODERATE
+            thermalLevel >= 1 -> ProXdrV3Thermal.LIGHT
+            else -> ProXdrV3Thermal.NORMAL
+        }
+        return proXdrV3Engine.process(
+            frames = frames,
+            sceneMode = sceneMode,
+            thermal = thermal,
+            userBias = 0f,
+        )
+    }
+
+    private fun SceneCategory.toV3(): ProXdrV3SceneMode = when (this) {
+        SceneCategory.PORTRAIT -> ProXdrV3SceneMode.PORTRAIT
+        SceneCategory.LANDSCAPE -> ProXdrV3SceneMode.DAYLIGHT
+        SceneCategory.NIGHT -> ProXdrV3SceneMode.NIGHT
+        SceneCategory.STAGE -> ProXdrV3SceneMode.LOW_LIGHT
+        SceneCategory.SNOW -> ProXdrV3SceneMode.BRIGHT_DAY
+        SceneCategory.BACKLIT_PORTRAIT -> ProXdrV3SceneMode.BACKLIT
+        SceneCategory.GENERAL -> ProXdrV3SceneMode.AUTO
     }
 
     private fun buildMetadata(

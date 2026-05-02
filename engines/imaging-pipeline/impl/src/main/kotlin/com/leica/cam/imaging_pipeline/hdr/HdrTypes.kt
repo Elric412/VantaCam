@@ -77,6 +77,10 @@ object HdrModePicker {
                 metadata.evSpread < 0.5f -> HdrMergeMode.WIENER_BURST
                 else -> HdrMergeMode.DEBEVEC_LINEAR
             }
+            // PRO_XDR_V3: the v3 wrapper picks its own path (Wiener / Mertens-on-linear-HDR)
+            // internally; from the orchestrator's perspective we still fall through
+            // WIENER_BURST so the result type stays compatible.
+            UserHdrMode.PRO_XDR_V3 -> HdrMergeMode.WIENER_BURST
         }
     }
 }

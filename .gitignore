@@ -11,3 +11,4 @@ captures/
 # Copied model assets — source of truth is /Model/
 app/src/main/assets/models/
 node_modules/
+proxdr_v3_source/
