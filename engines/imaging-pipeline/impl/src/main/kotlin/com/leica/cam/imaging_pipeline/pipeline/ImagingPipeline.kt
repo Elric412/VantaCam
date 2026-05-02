@@ -1223,6 +1223,13 @@ class ImagingPipeline(
     private val semanticSegmenter: com.leica.cam.ai_engine.api.SemanticSegmenter? = null,
     /** ColorLM 2.0 stage: per-zone CCM + 3D LUT + CUSP gamut map + film grain. */
     private val colorScienceStage: ColorSciencePipelineStage? = null,
+    /**
+     * Optional anti-fringing engine — purple/green halo suppression around
+     * high-contrast edges (axial chromatic aberration). Runs after HDR merge
+     * but BEFORE tone mapping, when R/G/B are still co-located in linear light.
+     * When null, defringing is skipped (legacy behaviour).
+     */
+    private val antiFringingEngine: com.leica.cam.imaging_pipeline.antifringing.AntiFringingEngine? = null,
 ) {
 
     fun process(
@@ -1256,15 +1263,22 @@ class ImagingPipeline(
         }
 
         val denoised = shadowDenoiser.denoise(hdrResult.mergedFrame, effectiveNoise)
+
+        // ── Anti-fringing — purple/green halo suppression ────────────────────
+        // Runs in linear light, post-HDR merge, before tone mapping.
+        // Targets axial chromatic aberration (out-of-focus longitudinal CA),
+        // which `LensCorrectionSuite.correctChromaticAberration` (lateral CA
+        // only) cannot fix. Skipped when the engine is null (legacy path).
+        val defringed = antiFringingEngine?.apply(denoised, faceMask) ?: denoised
         val ispRefined = if (
             microIspRefiner != null &&
             microIspEligible &&
             sensorId != null &&
             microIspRefiner.isEligible(sensorId)
         ) {
-            applyMicroIsp(denoised)
+            applyMicroIsp(defringed)
         } else {
-            denoised
+            defringed
         }
         val autoMask = semanticMask ?: autoSegment(ispRefined, frames.first().isoEquivalent)
 

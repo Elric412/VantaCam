@@ -1,5 +1,81 @@
 # Changelog
 
+## Phase 14 — ProXDR v3 Adaptive HDR + Anti-Fringing (2026-05-02)
+
+### Implemented — ProXDR v3 (Adaptive AI HDR Engine)
+- Dropped the upstream **ProXDR v3** C++ engine (`improved/`) into
+  `platform-android/native-imaging-core/impl/src/main/cpp/proxdr/` (12 source
+  files + JNI bridge + master header).
+- Updated `platform-android/native-imaging-core/impl/src/main/cpp/CMakeLists.txt`
+  to build a second shared library `libproxdr_engine.so` alongside
+  `libnative_imaging_core.so`. C++17 pinned for the dropped-in code; release
+  builds add NEON / `-march=armv8-a+simd`, strip symbols (~700 KB target).
+- Copied the upstream Kotlin façade (`ProXDRBridge.kt`,
+  `HdrBurstCapture.kt`, `TfliteNeuralDelegate.kt`) into
+  `engines/imaging-pipeline/impl/.../com/proxdr/engine/` so the JNI bridge
+  resolves at runtime via `System.loadLibrary("proxdr_engine")`.
+- New project-idiomatic wrapper layer under
+  `engines/imaging-pipeline/impl/.../hdr/proxdrv3/`:
+  - `ProXdrV3Engine.kt` — façade with native + Kotlin RGB-fast-path execution
+    modes; faithful Kotlin port of v3's RGB pipeline (reference-frame pick,
+    SAFNet-lite Wiener fusion, soft-knee spectral highlight recovery,
+    log-lift shadow restoration) so unit tests are deterministic.
+  - `ProXdrV3Tuning.kt` — exposes the upstream `ProXDRCfg` knobs
+    (shadow / highlight / fusion / noise) with the documented defaults.
+  - `ProXdrV3NativeBackend.kt` — interface + `Native` / `Unavailable`
+    implementations resolved via reflection so the JVM tests don't need
+    `System.loadLibrary`.
+- Wired ProXDR v3 into `ProXdrOrchestrator`:
+  - New constructor parameter `proXdrV3Engine: ProXdrV3Engine`.
+  - Routes the new `UserHdrMode.PRO_XDR_V3` path to the v3 engine while
+    keeping the legacy Wiener / Debevec / Mertens paths intact.
+  - Translates `SceneDescriptor` → `ProXdrV3SceneMode` and the existing
+    thermal-level integer → `ProXdrV3Thermal`.
+- Added `UserHdrMode.PRO_XDR_V3` value to the public api enum.
+- DI updates (`ImagingPipelineModule`): provides `ProXdrV3Tuning`,
+  `ProXdrV3Engine`, and injects them into `ProXdrOrchestrator`.
+- Build dependencies (`engines/imaging-pipeline/impl/build.gradle.kts`):
+  pulled in `:native-imaging-core:impl` so the v3 `.so` ships with the
+  pipeline; added `compileOnly` TFLite deps required by the bridge's
+  `TfliteNeuralDelegate`.
+
+### Implemented — Anti-Fringing Engine
+- New module `engines/imaging-pipeline/impl/.../antifringing/`:
+  - `AntiFringingEngine.kt` — purple / green halo suppression in the
+    post-demosaic linear RGB domain. Five-stage operator (Sobel edge
+    detection → opponent-space chroma split → fringe mask with hue-band
+    selectivity → saturation reduction → optional sub-pixel R/B
+    realignment) targeting **axial / longitudinal CA**, complementing the
+    existing `LensCorrectionSuite` which only handles lateral CA.
+  - `AntiFringingConfig.kt` — tunable thresholds with `GENTLE`,
+    `AGGRESSIVE`, and `OFF` presets; runtime-validated ranges.
+- Wired into `ImagingPipeline`:
+  - New optional constructor parameter `antiFringingEngine`.
+  - Runs immediately after HDR merge / shadow denoise and before tone
+    mapping — when R/G/B are still co-located in linear light and the
+    halo's chromatic signature is mathematically clean.
+- DI: `ImagingPipelineModule` provides default `AntiFringingConfig` and
+  `AntiFringingEngine`, then injects into `ImagingPipeline`.
+
+### Tests
+- `ProXdrV3EngineTest.kt` — covers empty input, single-frame pass-through,
+  thermal-CRITICAL bypass, multi-frame Wiener fusion convergence,
+  native-backend availability invariant, and tuning surface.
+- `AntiFringingEngineTest.kt` — covers flat-region invariance, OFF profile
+  no-op, purple-fringe attenuation on a synthetic edge, luminance
+  preservation, face-mask gating, GENTLE-vs-default profile ordering, and
+  config range validation.
+
+### Notes
+- The native v3 RAW path is intentionally not wired into `LeicaCam`'s
+  capture flow yet — `LeicaCam` runs post-demosaic in fp32 linear RGB
+  while the v3 bridge expects RAW16. `ProXdrV3Engine.runRgbFastPath`
+  preserves the upstream pipeline shape and serves as the production path
+  until the RAW capture route is plumbed end-to-end.
+- License: code under `proxdr/` is original to the ProXDR v3 authors; the
+  required attribution will be included in the About screen per the
+  upstream `README.md` license clause.
+
 ## Phase 12 — Native Buffer Migration (2026-04-12)
 
 ### Implemented

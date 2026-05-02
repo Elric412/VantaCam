@@ -3,8 +3,12 @@ package com.leica.cam.imaging_pipeline.di
 import com.leica.cam.ai_engine.api.NeuralIspRefiner
 import com.leica.cam.ai_engine.api.SemanticSegmenter
 import com.leica.cam.color_science.api.IColorLM2Engine
+import com.leica.cam.imaging_pipeline.antifringing.AntiFringingConfig
+import com.leica.cam.imaging_pipeline.antifringing.AntiFringingEngine
 import com.leica.cam.imaging_pipeline.pipeline.ColorSciencePipelineStage
 import com.leica.cam.imaging_pipeline.hdr.ProXdrOrchestrator
+import com.leica.cam.imaging_pipeline.hdr.proxdrv3.ProXdrV3Engine
+import com.leica.cam.imaging_pipeline.hdr.proxdrv3.ProXdrV3Tuning
 import com.leica.cam.imaging_pipeline.pipeline.AstrophotographyEngine
 import com.leica.cam.imaging_pipeline.pipeline.CinemaVideoModeEngine
 import com.leica.cam.imaging_pipeline.pipeline.CinematicSCurveEngine
@@ -48,7 +52,17 @@ object ImagingPipelineModule {
 
     @Provides
     @Singleton
-    fun provideProXdrOrchestrator(): ProXdrOrchestrator = ProXdrOrchestrator()
+    fun provideProXdrV3Tuning(): ProXdrV3Tuning = ProXdrV3Tuning()
+
+    @Provides
+    @Singleton
+    fun provideProXdrV3Engine(tuning: ProXdrV3Tuning): ProXdrV3Engine = ProXdrV3Engine(tuning)
+
+    @Provides
+    @Singleton
+    fun provideProXdrOrchestrator(
+        proXdrV3Engine: ProXdrV3Engine,
+    ): ProXdrOrchestrator = ProXdrOrchestrator(proXdrV3Engine = proXdrV3Engine)
 
     @Provides
     @Singleton
