@@ -20,6 +20,12 @@ dependencies {
     implementation(project(":photon-matrix:api"))
     implementation(project(":hardware-contracts"))
     implementation(project(":common"))
+    // RAW16 capture types live in :sensor-hal — they're plain-Kotlin POJOs
+    // (`RawFrame`, `RawBurstBundle`, `RawCameraMeta`, `BayerPattern`).
+    // The imaging pipeline consumes them when wiring the native ProXDR v3
+    // RAW16 path (see RawBurstIngestor). The Android-only Camera2 plumbing
+    // (`RawCaptureSession`) stays in :sensor-hal.
+    implementation(project(":sensor-hal"))
     // ProXDR v3 native engine is built by :native-imaging-core:impl alongside
     // libnative_imaging_core.so. We need the .so packaged with this module so
     // System.loadLibrary("proxdr_engine") resolves at runtime.

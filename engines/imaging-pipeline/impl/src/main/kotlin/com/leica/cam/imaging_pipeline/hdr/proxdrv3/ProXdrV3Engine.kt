@@ -196,9 +196,14 @@ class ProXdrV3Engine(
         )
 
     private fun hasRawFootprint(frames: List<PipelineFrame>): Boolean {
-        // The native bridge expects RAW16 capacity. PipelineFrame already
-        // stores demosaic'd RGB so we never satisfy this in the existing
-        // pipeline; left as an extension point for a future RAW capture path.
+        // The native bridge expects RAW16 capacity. `PipelineFrame` carries
+        // demosaiced RGB, so when the pipeline is fed via the legacy RGB
+        // entry point this stays false. The RAW16-first path is now wired
+        // via `com.leica.cam.imaging_pipeline.raw.RawBurstIngestor` —
+        // when the orchestrator routes a RAW burst through that ingestor,
+        // the native bridge is invoked directly and the engine's RGB
+        // fast-path is skipped entirely. Returning `false` here therefore
+        // remains correct for the *RGB-only* call site of `process()`.
         return false
     }
 
