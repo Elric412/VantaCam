@@ -7,8 +7,12 @@ import com.leica.cam.imaging_pipeline.antifringing.AntiFringingConfig
 import com.leica.cam.imaging_pipeline.antifringing.AntiFringingEngine
 import com.leica.cam.imaging_pipeline.pipeline.ColorSciencePipelineStage
 import com.leica.cam.imaging_pipeline.hdr.ProXdrOrchestrator
+import com.leica.cam.imaging_pipeline.color.AdvancedColorProcessingEngine
 import com.leica.cam.imaging_pipeline.hdr.proxdrv3.ProXdrV3Engine
 import com.leica.cam.imaging_pipeline.hdr.proxdrv3.ProXdrV3Tuning
+import com.leica.cam.imaging_pipeline.noise.AdaptiveNoiseProcessingEngine
+import com.leica.cam.imaging_pipeline.raw.RawBurstIngestor
+import com.leica.cam.imaging_pipeline.raw.RawDemosaicEngine
 import com.leica.cam.imaging_pipeline.pipeline.AstrophotographyEngine
 import com.leica.cam.imaging_pipeline.pipeline.CinemaVideoModeEngine
 import com.leica.cam.imaging_pipeline.pipeline.CinematicSCurveEngine
@@ -220,6 +224,31 @@ object ImagingPipelineModule {
     @Provides
     @Singleton
     fun providePrivacyAuditLog(): InMemoryPrivacyAuditLog = InMemoryPrivacyAuditLog()
+
+    // ── RAW16 capture path (replaces post-demosaic RGB escape hatch) ─────────
+
+    @Provides
+    @Singleton
+    fun provideRawDemosaicEngine(): RawDemosaicEngine = RawDemosaicEngine()
+
+    @Provides
+    @Singleton
+    fun provideRawBurstIngestor(
+        demosaic: RawDemosaicEngine,
+        engine: ProXdrV3Engine,
+    ): RawBurstIngestor = RawBurstIngestor(demosaic, engine)
+
+    // ── Future-proof advanced color & noise suites ───────────────────────────
+
+    @Provides
+    @Singleton
+    fun provideAdvancedColorProcessingEngine(): AdvancedColorProcessingEngine =
+        AdvancedColorProcessingEngine()
+
+    @Provides
+    @Singleton
+    fun provideAdaptiveNoiseProcessingEngine(): AdaptiveNoiseProcessingEngine =
+        AdaptiveNoiseProcessingEngine()
 
     @Provides
     @Singleton
