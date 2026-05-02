@@ -20,6 +20,36 @@ class CameraSessionStateMachineTest {
         assertEquals(CameraSessionState.CLOSED, machine.currentState())
     }
 
+    @Test
+    fun `capture error recovers back to idle so next shutter press is possible`() {
+        val machine = CameraSessionStateMachine()
+
+        machine.transition(CameraSessionEvent.OPEN_REQUESTED)
+        machine.transition(CameraSessionEvent.OPENED)
+        machine.transition(CameraSessionEvent.CONFIGURED)
+        machine.transition(CameraSessionEvent.CAPTURE_REQUESTED)
+        machine.transition(CameraSessionEvent.CAPTURE_STARTED)
+        machine.transition(CameraSessionEvent.ERROR)
+
+        assertEquals(CameraSessionState.IDLE, machine.currentState())
+    }
+
+    @Test
+    fun `lifecycle close is valid while opening and configuring`() {
+        val opening = CameraSessionStateMachine()
+        opening.transition(CameraSessionEvent.OPEN_REQUESTED)
+        opening.transition(CameraSessionEvent.CLOSE_REQUESTED)
+        opening.transition(CameraSessionEvent.CLOSED)
+        assertEquals(CameraSessionState.CLOSED, opening.currentState())
+
+        val configuring = CameraSessionStateMachine()
+        configuring.transition(CameraSessionEvent.OPEN_REQUESTED)
+        configuring.transition(CameraSessionEvent.OPENED)
+        configuring.transition(CameraSessionEvent.CLOSE_REQUESTED)
+        configuring.transition(CameraSessionEvent.CLOSED)
+        assertEquals(CameraSessionState.CLOSED, configuring.currentState())
+    }
+
     @Test(expected = IllegalStateException::class)
     fun `throws on invalid transition`() {
         val machine = CameraSessionStateMachine()

@@ -38,10 +38,12 @@ class CameraSessionStateMachine(
                 ),
                 CameraSessionState.OPENING to mapOf(
                     CameraSessionEvent.OPENED to CameraSessionState.CONFIGURING,
+                    CameraSessionEvent.CLOSE_REQUESTED to CameraSessionState.CLOSING,
                     CameraSessionEvent.ERROR to CameraSessionState.CLOSING,
                 ),
                 CameraSessionState.CONFIGURING to mapOf(
                     CameraSessionEvent.CONFIGURED to CameraSessionState.IDLE,
+                    CameraSessionEvent.CLOSE_REQUESTED to CameraSessionState.CLOSING,
                     CameraSessionEvent.ERROR to CameraSessionState.CLOSING,
                 ),
                 CameraSessionState.IDLE to mapOf(
@@ -51,12 +53,13 @@ class CameraSessionStateMachine(
                 ),
                 CameraSessionState.CAPTURING to mapOf(
                     CameraSessionEvent.CAPTURE_STARTED to CameraSessionState.PROCESSING,
-                    CameraSessionEvent.ERROR to CameraSessionState.CLOSING,
+                    CameraSessionEvent.CLOSE_REQUESTED to CameraSessionState.CLOSING,
+                    CameraSessionEvent.ERROR to CameraSessionState.IDLE,
                 ),
                 CameraSessionState.PROCESSING to mapOf(
                     CameraSessionEvent.PROCESSING_COMPLETED to CameraSessionState.IDLE,
                     CameraSessionEvent.CLOSE_REQUESTED to CameraSessionState.CLOSING,
-                    CameraSessionEvent.ERROR to CameraSessionState.CLOSING,
+                    CameraSessionEvent.ERROR to CameraSessionState.IDLE,
                 ),
                 CameraSessionState.PAUSED to mapOf(
                     CameraSessionEvent.RESUME_REQUESTED to CameraSessionState.IDLE,

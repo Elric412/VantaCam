@@ -14,6 +14,7 @@
     <!-- Scoped media on API 33+. -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
 
     <!-- Notifications for long-running capture (HDR+, Night, Astro) — API 33+. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -21,6 +22,7 @@
     <!-- Location (optional, for EXIF geotag). Both coarse + fine. -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_MEDIA_LOCATION" />
 
     <!-- Hardware declarations. Fine-grained — we need manual focus + RAW. -->
     <uses-feature android:name="android.hardware.camera" android:required="true" />

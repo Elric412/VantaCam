@@ -4,6 +4,7 @@ import android.hardware.camera2.CameraAccessException
 import com.leica.cam.common.Logger
 import com.leica.cam.common.result.LeicaResult
 import com.leica.cam.common.result.PipelineStage
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -20,21 +21,31 @@ class CameraSessionManager(
 ) {
     private val mutex = Mutex()
 
-    suspend fun openSession() {
-        mutex.withLock {
+    suspend fun openSession(): LeicaResult<Unit> {
+        return mutex.withLock {
             if (stateMachine.currentState() != CameraSessionState.CLOSED) {
                 Logger.d(TAG, "openSession ignored because state=${stateMachine.currentState()}")
-                return
+                return@withLock LeicaResult.Success(Unit)
             }
 
             stateMachine.transition(CameraSessionEvent.OPEN_REQUESTED)
-            retryWithBackoff("openSession") {
-                val selectedCameraId = cameraSelector.selectCameraId(cameraController.availableCameraIds())
-                cameraController.openCamera(selectedCameraId)
-                stateMachine.transition(CameraSessionEvent.OPENED)
-                cameraController.configureSession(selectedCameraId)
-                stateMachine.transition(CameraSessionEvent.CONFIGURED)
-            }
+            runCatching {
+                retryWithBackoff("openSession") {
+                    val selectedCameraId = cameraSelector.selectCameraId(cameraController.availableCameraIds())
+                    cameraController.openCamera(selectedCameraId)
+                    stateMachine.transition(CameraSessionEvent.OPENED)
+                    cameraController.configureSession(selectedCameraId)
+                    stateMachine.transition(CameraSessionEvent.CONFIGURED)
+                }
+            }.fold(
+                onSuccess = { LeicaResult.Success(Unit) },
+                onFailure = { throwable ->
+                    if (throwable is CancellationException) throw throwable
+                    Logger.e(TAG, "openSession failed; closing partial camera session", throwable)
+                    closeAfterFailedOpen()
+                    LeicaResult.Failure.Hardware(errorCode = -1, message = throwable.message ?: "Camera open failed", cause = throwable)
+                },
+            )
         }
     }
 
@@ -47,7 +58,11 @@ class CameraSessionManager(
 
             stateMachine.transition(CameraSessionEvent.CAPTURE_REQUESTED)
             stateMachine.transition(CameraSessionEvent.CAPTURE_STARTED)
-            when (val captureResult = cameraController.capture()) {
+            val captureResult = runCatching { cameraController.capture() }.getOrElse { throwable ->
+                if (throwable is CancellationException) throw throwable
+                LeicaResult.Failure.Hardware(errorCode = -1, message = throwable.message ?: "Capture crashed", cause = throwable)
+            }
+            when (captureResult) {
                 is LeicaResult.Success -> {
                     stateMachine.transition(CameraSessionEvent.PROCESSING_COMPLETED)
                     LeicaResult.Success(Unit)
@@ -72,6 +87,20 @@ class CameraSessionManager(
             }
             cameraController.closeCamera()
             stateMachine.transition(CameraSessionEvent.CLOSED)
+        }
+    }
+
+    private suspend fun closeAfterFailedOpen() {
+        runCatching { cameraController.closeCamera() }
+        when (stateMachine.currentState()) {
+            CameraSessionState.CLOSED -> Unit
+            CameraSessionState.CLOSING -> stateMachine.transition(CameraSessionEvent.CLOSED)
+            else -> {
+                runCatching { stateMachine.transition(CameraSessionEvent.ERROR) }
+                if (stateMachine.currentState() == CameraSessionState.CLOSING) {
+                    stateMachine.transition(CameraSessionEvent.CLOSED)
+                }
+            }
         }
     }
 

@@ -78,6 +78,7 @@ import com.leica.cam.capture.orchestrator.CaptureRequest
 import com.leica.cam.capture.orchestrator.HdrCaptureMode
 import com.leica.cam.common.result.LeicaResult
 import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 /**
@@ -357,24 +358,30 @@ fun CameraScreen(
                 LeicaShutterButton(onClick = {
                     deps.orchestrator.handleGesture(CameraGesture.Tap(0.5f, 0.5f), 1.0f)
                     coroutineScope.launch {
-                        // ── Full LUMO Capture Pipeline ───────────────────────
-                        // Build a CaptureRequest from current UI state (HDR mode,
-                        // colour profile, tone config) and run the complete
-                        // photon-to-pixel processing chain:
-                        //   ZSL → AF → Metering → ISP detect → Ingest → Align →
-                        //   Fuse → AI (scene/depth/face/colour) → HyperTone WB →
-                        //   Bokeh → Perceptual Tone (A-E) → Neural ISP →
-                        //   Skin Tone → 3D LUT → Film Grain → Output Encode
-                        val hdrMode = when (preferences.hdr.mode) {
-                            UserHdrMode.OFF     -> HdrCaptureMode.OFF
-                            UserHdrMode.ON      -> HdrCaptureMode.ON
-                            UserHdrMode.SMART   -> HdrCaptureMode.SMART
-                            UserHdrMode.PRO_XDR -> HdrCaptureMode.PRO_XDR
+                        val pipelineResult = runCatching {
+                            // ── Full LUMO Capture Pipeline ───────────────────────
+                            // Build a CaptureRequest from current UI state (HDR mode,
+                            // colour profile, tone config) and run the complete
+                            // photon-to-pixel processing chain. This path can still
+                            // fail on devices whose ZSL/RAW frame feed is warming up,
+                            // so failures always fall back to the already-bound
+                            // CameraX still capture below instead of crashing the UI.
+                            val hdrMode = when (preferences.hdr.mode) {
+                                UserHdrMode.OFF     -> HdrCaptureMode.OFF
+                                UserHdrMode.ON      -> HdrCaptureMode.ON
+                                UserHdrMode.SMART   -> HdrCaptureMode.SMART
+                                UserHdrMode.PRO_XDR -> HdrCaptureMode.PRO_XDR
+                            }
+                            deps.captureOrchestrator.processCapture(CaptureRequest(hdrMode = hdrMode))
+                        }.getOrElse { throwable ->
+                            if (throwable is CancellationException) throw throwable
+                            LeicaResult.Failure.Pipeline(
+                                stage = com.leica.cam.common.result.PipelineStage.SESSION,
+                                message = throwable.message ?: "Capture pipeline crashed before producing an image",
+                                cause = throwable,
+                            )
                         }
-                        val captureRequest = CaptureRequest(
-                            hdrMode = hdrMode,
-                        )
-                        val pipelineResult = deps.captureOrchestrator.processCapture(captureRequest)
+
                         when (pipelineResult) {
                             is LeicaResult.Success -> {
                                 val result = pipelineResult.value
@@ -386,10 +393,9 @@ fun CameraScreen(
                                 ).show()
                             }
                             is LeicaResult.Failure -> {
-                                // Fallback: try basic CameraX capture if pipeline fails
                                 val fallbackResult = deps.sessionManager.capture()
                                 val msg = if (fallbackResult is LeicaResult.Failure) {
-                                    "Capture failed: ${pipelineResult.message}"
+                                    "Capture failed: ${fallbackResult.message}"
                                 } else {
                                     "Captured (basic mode)"
                                 }
@@ -405,12 +411,12 @@ fun CameraScreen(
                     val nextFacing = preferences.cameraFacing.toggled()
                     deps.preferences.update { it.copy(cameraFacing = nextFacing) }
                     coroutineScope.launch {
-                        deps.sessionCommandBus.send(com.leica.cam.feature.camera.preview.SessionCommand.Close)
-                        val switched = deps.cameraController.switchCameraFacing(nextFacing == CameraFacing.FRONT)
-                        if (switched is com.leica.cam.common.result.LeicaResult.Failure) {
-                            android.widget.Toast.makeText(context, switched.message, android.widget.Toast.LENGTH_SHORT).show()
+                        deps.cameraController.setPreferredCameraFacing(nextFacing == CameraFacing.FRONT)
+                        deps.sessionManager.closeSession()
+                        val reopened = deps.sessionManager.openSession()
+                        if (reopened is com.leica.cam.common.result.LeicaResult.Failure) {
+                            android.widget.Toast.makeText(context, reopened.message, android.widget.Toast.LENGTH_SHORT).show()
                         }
-                        deps.sessionCommandBus.send(com.leica.cam.feature.camera.preview.SessionCommand.Open)
                     }
                 }) {
                     Icon(
