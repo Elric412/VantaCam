@@ -18,8 +18,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -36,26 +34,24 @@ fun PermissionGate(
     content: @Composable () -> Unit,
 ) {
     val state = rememberMultiplePermissionsState(
-        permissions = RequiredPermissions.mustHave,
+        permissions = RequiredPermissions.startupPrompt,
     )
 
-    val permissionState = remember(state.permissions) {
-        LeicaPermissionReducer.reduce(
-            grants = state.permissions.associate { permissionState ->
-                permissionState.permission to (permissionState.status is PermissionStatus.Granted)
-            },
-            rationales = state.permissions.associate { permissionState ->
-                permissionState.permission to when (val status = permissionState.status) {
-                    is PermissionStatus.Denied -> status.shouldShowRationale
-                    PermissionStatus.Granted -> false
-                }
-            },
-            required = RequiredPermissions.mustHave,
-        )
-    }
+    val permissionState = LeicaPermissionReducer.reduce(
+        grants = state.permissions.associate { permissionState ->
+            permissionState.permission to (permissionState.status is PermissionStatus.Granted)
+        },
+        rationales = state.permissions.associate { permissionState ->
+            permissionState.permission to when (val status = permissionState.status) {
+                is PermissionStatus.Denied -> status.shouldShowRationale
+                PermissionStatus.Granted -> false
+            }
+        },
+        required = RequiredPermissions.requiredForViewfinder,
+    )
 
-    LaunchedEffect(permissionState) {
-        if (permissionState == LeicaPermissionState.Unknown) {
+    LaunchedEffect(Unit) {
+        if (!state.allPermissionsGranted) {
             state.launchMultiplePermissionRequest()
         }
     }
@@ -101,7 +97,7 @@ private fun PermissionRationaleScreen(
                 text = if (isPermanentlyDenied) {
                     "LeicaCam cannot start the live viewfinder until Android camera access is re-enabled in Settings."
                 } else {
-                    "Grant camera permission to open the real viewfinder. Microphone, media, and location access are optional and requested only when those features are used."
+                    "Grant camera access to open the live viewfinder. Media, audio, and notification permissions are requested now so capture, video, gallery, and long-running HDR features work without later crashes."
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 color = colors.onSurfaceMuted,
@@ -127,7 +123,7 @@ private fun PermissionRationaleScreen(
                 ),
                 shape = RoundedCornerShape(4.dp),
             ) {
-                Text(if (isPermanentlyDenied) "OPEN SETTINGS" else "GRANT CAMERA ACCESS")
+                Text(if (isPermanentlyDenied) "OPEN SETTINGS" else "GRANT CAMERA PERMISSIONS")
             }
         }
     }

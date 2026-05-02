@@ -1,7 +1,9 @@
 package com.leica.cam.sensor_hal.session
 
+import android.Manifest
 import android.content.ContentValues
 import android.content.Context
+import android.content.pm.PackageManager
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
 import android.hardware.camera2.CaptureRequest
@@ -19,6 +21,7 @@ import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
 import com.leica.cam.common.Logger
 import com.leica.cam.common.result.LeicaResult
@@ -75,6 +78,9 @@ class Camera2CameraController(
     @Volatile
     private var currentCameraId: String? = null
 
+    @Volatile
+    private var preferredLensFacing: Int = CameraCharacteristics.LENS_FACING_BACK
+
     /** Attaches the active [PreviewView] and [LifecycleOwner] before opening the session. */
     fun attach(view: PreviewView, owner: LifecycleOwner) {
         previewView = view
@@ -82,13 +88,20 @@ class Camera2CameraController(
     }
 
     override fun availableCameraIds(): List<String> =
-        runCatching { cameraManager.cameraIdList.toList() }
-            .getOrElse {
-                Logger.e(TAG, "Cannot read cameraIdList", it)
-                emptyList()
-            }
+        runCatching {
+            cameraManager.cameraIdList.toList().sortedWith(
+                compareByDescending<String> { id -> camera2PriorityScore(id) }
+                    .thenBy { id -> id.toIntOrNull() ?: Int.MAX_VALUE },
+            )
+        }.getOrElse {
+            Logger.e(TAG, "Cannot read cameraIdList", it)
+            emptyList()
+        }
 
     override suspend fun openCamera(cameraId: String) {
+        if (ContextCompat.checkSelfPermission(appContext, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            throw SecurityException("CAMERA permission is not granted")
+        }
         val capabilities = withContext(Dispatchers.Default) { loadCapabilities(cameraId) }
         val selector = withContext(Dispatchers.Default) { selectorForCameraId(cameraId) }
         val provider = awaitCameraProvider()
@@ -207,16 +220,27 @@ class Camera2CameraController(
     }
 
     fun setZoomRatio(zoomRatio: Float) {
-        boundCamera?.cameraControl?.setZoomRatio(zoomRatio.coerceAtLeast(1f))
+        val camera = boundCamera ?: return
+        val zoomState = camera.cameraInfo.zoomState.value
+        val safeZoom = if (zoomState != null) {
+            zoomRatio.coerceIn(zoomState.minZoomRatio, zoomState.maxZoomRatio)
+        } else {
+            zoomRatio.coerceAtLeast(1f)
+        }
+        camera.cameraControl.setZoomRatio(safeZoom)
     }
 
-    suspend fun switchCameraFacing(useFrontCamera: Boolean): LeicaResult<Unit> {
-        val targetFacing = if (useFrontCamera) {
+    fun setPreferredCameraFacing(useFrontCamera: Boolean) {
+        preferredLensFacing = if (useFrontCamera) {
             CameraCharacteristics.LENS_FACING_FRONT
         } else {
             CameraCharacteristics.LENS_FACING_BACK
         }
-        val targetCameraId = withContext(Dispatchers.Default) { findCameraIdByFacing(targetFacing) }
+    }
+
+    suspend fun switchCameraFacing(useFrontCamera: Boolean): LeicaResult<Unit> {
+        setPreferredCameraFacing(useFrontCamera)
+        val targetCameraId = withContext(Dispatchers.Default) { findCameraIdByFacing(preferredLensFacing) }
             ?: return LeicaResult.Failure.Hardware(errorCode = -1, message = "No camera found for facing=${if (useFrontCamera) "front" else "back"}")
 
         closeCamera()
@@ -297,6 +321,13 @@ class Camera2CameraController(
 
     private fun loadCapabilities(cameraId: String): CameraRuntimeCapabilities {
         val characteristics = cameraManager.getCameraCharacteristics(cameraId)
+        val capabilities = characteristics.get(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES).orEmpty()
+        Logger.i(
+            TAG,
+            "Camera2 capabilities for $cameraId: raw=${capabilities.contains(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_RAW)}, " +
+                "manualSensor=${capabilities.contains(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_MANUAL_SENSOR)}, " +
+                "priority=${camera2PriorityScore(cameraId)}",
+        )
         return CameraRuntimeCapabilities(
             isoRange = characteristics.get(CameraCharacteristics.SENSOR_INFO_SENSITIVITY_RANGE)?.toIntRange(),
             shutterRangeUs = characteristics.get(CameraCharacteristics.SENSOR_INFO_EXPOSURE_TIME_RANGE)?.toMicrosecondRange(),
@@ -307,24 +338,36 @@ class Camera2CameraController(
         )
     }
 
+    private fun camera2PriorityScore(cameraId: String): Int {
+        val characteristics = cameraManager.getCameraCharacteristics(cameraId)
+        val facing = characteristics.get(CameraCharacteristics.LENS_FACING)
+        val hardwareLevel = characteristics.get(CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL)
+        val capabilities = characteristics.get(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES).orEmpty()
+
+        var score = 0
+        if (facing == preferredLensFacing) score += 1_000
+        if (facing == CameraCharacteristics.LENS_FACING_BACK) score += 100
+        if (hardwareLevel == CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_3) score += 40
+        if (hardwareLevel == CameraCharacteristics.INFO_SUPPORTED_HARDWARE_LEVEL_FULL) score += 30
+        if (capabilities.contains(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_RAW)) score += 20
+        if (capabilities.contains(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_MANUAL_SENSOR)) score += 20
+        if (capabilities.contains(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_LOGICAL_MULTI_CAMERA)) score += 5
+        return score
+    }
+
     private fun selectorForCameraId(cameraId: String): CameraXSelector {
-        val filteredSelector = CameraXSelector.Builder()
-            .addCameraFilter { infos -> infos.filter { Camera2CameraInfo.from(it).cameraId == cameraId } }
-            .build()
-
-        val hasMatch = runCatching {
-            ProcessCameraProvider.getInstance(appContext).get().availableCameraInfos.any {
-                Camera2CameraInfo.from(it).cameraId == cameraId
-            }
-        }.getOrDefault(false)
-        if (hasMatch) return filteredSelector
-
         val facing = cameraManager.getCameraCharacteristics(cameraId).get(CameraCharacteristics.LENS_FACING)
-        return if (facing == CameraCharacteristics.LENS_FACING_FRONT) {
+        val fallbackSelector = if (facing == CameraCharacteristics.LENS_FACING_FRONT) {
             CameraXSelector.DEFAULT_FRONT_CAMERA
         } else {
             CameraXSelector.DEFAULT_BACK_CAMERA
         }
+        return CameraXSelector.Builder.fromSelector(fallbackSelector)
+            .addCameraFilter { infos ->
+                infos.filter { Camera2CameraInfo.from(it).cameraId == cameraId }
+                    .ifEmpty { infos }
+            }
+            .build()
     }
 
     private fun findCameraIdByFacing(facing: Int): String? {

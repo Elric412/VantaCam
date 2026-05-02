@@ -6,6 +6,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -14,6 +15,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.leica.cam.sensor_hal.session.Camera2CameraController
 import com.leica.cam.sensor_hal.session.CameraSessionManager
+import kotlinx.coroutines.launch
 
 @Composable
 fun CameraPreview(
@@ -24,6 +26,7 @@ fun CameraPreview(
 ) {
     val context = LocalContext.current
     val owner = LocalLifecycleOwner.current
+    val lifecycleScope = rememberCoroutineScope()
     val previewView = remember(context) {
         PreviewView(context).apply {
             scaleType = PreviewView.ScaleType.FILL_CENTER
@@ -40,18 +43,18 @@ fun CameraPreview(
         }
     }
 
-    DisposableEffect(owner, previewView, controller, sessionManager) {
+    DisposableEffect(owner, previewView, controller, sessionManager, lifecycleScope) {
         controller.attach(previewView, owner)
 
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_START -> {
                     controller.attach(previewView, owner)
-                    commandBus.trySend(SessionCommand.Open)
+                    lifecycleScope.launch { sessionManager.openSession() }
                 }
 
                 Lifecycle.Event.ON_STOP -> {
-                    commandBus.trySend(SessionCommand.Close)
+                    lifecycleScope.launch { sessionManager.closeSession() }
                 }
 
                 else -> Unit
@@ -60,12 +63,12 @@ fun CameraPreview(
 
         owner.lifecycle.addObserver(observer)
         if (owner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
-            commandBus.trySend(SessionCommand.Open)
+            lifecycleScope.launch { sessionManager.openSession() }
         }
 
         onDispose {
             owner.lifecycle.removeObserver(observer)
-            commandBus.trySend(SessionCommand.Close)
+            lifecycleScope.launch { sessionManager.closeSession() }
         }
     }
 
